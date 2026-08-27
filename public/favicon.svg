@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Aerociency</title>
+  <rect width="64" height="64" rx="14" fill="#071019"/>
+  <path d="M9 38.5 32 16l23 22.5-23-8.1Z" fill="#46c7ff" fill-opacity=".14" stroke="#68d8ff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M32 16v31M14.5 36.6 32 47l17.5-10.4" fill="none" stroke="#d9f6ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="32" cy="47" r="3.5" fill="#68d8ff"/>
+</svg>
