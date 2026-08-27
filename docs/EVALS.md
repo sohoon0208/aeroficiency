@@ -39,10 +39,11 @@ For every answer, reject unsupported extrapolation: no total-drag, stall, flutte
 
 ## Evidence status
 
-- Source inspection confirms exactly eight unique intended tool names: four read-only and four write tools.
-- A direct `aerociency-0.2.0` solver check confirms the baseline/candidate numerical fixture and all five candidate constraint states.
-- No supported-environment discovery trace, complete E01–E10 execution record, or 9/10 E10 reliability record has been captured in release artifacts.
-- The checked-in tests include baseline protection, UUID replay/mismatch, schema rejection, revision conflict, and stale-comparison cases; their clean-copy and CI results remain to be recorded.
+- The 2026-08-28 local in-app browser trace discovered exactly eight unique Site Tools—four read-only and four write—and directly completed E10's baseline, branch, bounded update, candidate analysis, comparison, and station-inspection path. The candidate passed all five configured checks.
+- `tests/evals.test.ts` repeats the deterministic solver-domain fixture ten times and freezes the baseline/candidate numerical outputs.
+- `tests/tool-evals.test.ts` executes ten canonical traces through the actual Site Tool definitions and Zustand action layer, including state reset, revisions, activity, comparison, constraints, and baseline preservation.
+- The remaining tests cover baseline protection, UUID replay/mismatch, schema rejection, async registration cleanup, revision conflict, snapshot forgery, clone isolation, non-convergence, and stale comparison.
+- A clean Git archive passed all 50 checked-in tests on 2026-08-28. Hosted CI, a complete prompt-driven E01–E10 record in the final supported browser/model, and the 9/10 E10 reliability record remain pending.
 
 Release target before recording: 100% invariant pass rate and at least 9 successful E10 runs out of 10 fresh resets. Do not mark this gate complete from a single favorable run.
 

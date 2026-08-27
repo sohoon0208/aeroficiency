@@ -21,7 +21,7 @@ Aerociency is a client-side preliminary-design application. It has no login, dat
 
 ## Deployment caveat
 
-`public/_headers` is provided for hosts that consume Cloudflare-style static header files, and `next.config.ts` supplies equivalent framework headers. Aerociency's current ChatGPT Sites/Vinext target is worker-rendered, so the actual public response—not these files—is the authority. The release must remain private until the live origin is checked for all intended headers and WebMCP compatibility.
+`public/_headers` is provided for hosts that consume Cloudflare-style static header files, and `next.config.ts` supplies equivalent framework headers, including an explicit root matcher for Vinext. On 2026-08-28, both the local Vinext production server and the generated Cloudflare Worker returned the intended CSP, `Origin-Agent-Cluster`, permissions, referrer, and `nosniff` headers on `/`. Aerociency's current ChatGPT Sites/Vinext target is worker-rendered, so the eventual public response—not local configuration or tests—is still the authority. The release must remain private until the live origin is checked for all intended headers and WebMCP compatibility.
 
 The CSP allows the minimum inline script/style behavior currently required by the Next/Vinext runtime and local component styles. Tightening those directives requires a production nonce/hash strategy and a complete browser regression test.
 

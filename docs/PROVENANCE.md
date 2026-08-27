@@ -15,4 +15,4 @@ The intended repository boundary is the `aerociency/` application directory. Pri
 - Pre-existing application code: none.
 - License: MIT.
 
-A local Git repository has not yet been established at `aerociency/`. Before release, initialize it only at that application directory so private parent-workspace material remains outside the history. Publication, hosting, video recording, and submission occur only after the entrant explicitly authorizes them.
+A local Git repository is established only at `aerociency/`; the parent workspace and private records are outside its root and were excluded by staged-content and privacy scans. No remote is configured and nothing has been published. Publication, hosting, video recording, and submission occur only after the entrant explicitly authorizes them.

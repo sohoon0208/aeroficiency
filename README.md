@@ -14,13 +14,15 @@ The human keeps control of the baseline, sees every mutation and warning, can ed
 
 ## Current release status
 
-The local release-candidate source, checked-in test suite, documentation, and release configuration are present in this directory. A clean-copy gate, browser/WebMCP acceptance, CI execution, production-header proof, and the frozen-release demo have not yet been recorded. Public hosting, repository publication, the final demo video, and Devpost submission are intentionally pending; no URL in this README should be treated as live until it is replaced and verified.
+The local release candidate completed its 2026-08-28 verification gate: a clean Git archive installs, lints, type-checks, verifies licenses, passes all 50 tests, reports zero audited vulnerabilities, and builds. The local in-app browser discovered exactly eight Site Tools and completed the baseline → candidate → analyze → compare workflow through those registered tools. Both the Vinext production server and generated Cloudflare Worker returned the intended security headers on `/`.
+
+Hosted CI, model-driven 9/10 reliability, public-origin/browser checks, and the frozen-release recording remain release gates. Public hosting, repository publication, the final demo video, and Devpost submission are intentionally pending; no URL in this README should be treated as live until it is replaced and verified.
 
 | Artifact | Status |
 |---|---|
-| Local source implementation | Present; release verification pending |
-| Eight-tool WebMCP contract | Present in source; supported-environment discovery pending |
-| Clean-copy gate and CI | Pending execution |
+| Local source implementation | Verified locally on 2026-08-28 |
+| Eight-tool WebMCP contract | Exactly eight discovered and invoked locally; model reliability pending |
+| Clean-copy gate and CI | Clean-copy gate passed; hosted CI pending |
 | Live site | `PENDING_PUBLICATION` |
 | Public source repository | `PENDING_PUBLICATION` |
 | Demo video | `PENDING_RECORDING` |
@@ -47,6 +49,8 @@ npm run licenses:check
 npm run build
 npm audit --audit-level=high
 ```
+
+The production build currently reports two understood, non-failing Vinext/Rolldown notices: the deliberately single-page Three.js visualization chunk exceeds the generic 500 kB suggestion, and Vinext cannot statically classify the root route because runtime headers are configured. The local production and generated-worker paths were exercised after the build; these notices do not replace the required live-origin checks.
 
 Run the production build locally with:
 
