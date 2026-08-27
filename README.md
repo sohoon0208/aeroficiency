@@ -8,7 +8,7 @@ Aerociency is a browser-based preliminary wing co-design workspace for a human a
 
 ## Why WebMCP matters
 
-An agent should not have to infer engineering state from sliders, plots, and a 3D viewport. The checked-in adapter defines eight narrow page-scoped Site Tools and registers them through `document.modelContext.registerTool` when that API is available. Tools read explicit revisions, mutate candidates through the same domain commands as the ordinary UI, run the worker-backed solver, and leave visible activity entries. Runtime discovery in the supported WebMCP environment remains a release gate.
+An agent should not have to infer engineering state from sliders, plots, and a 3D viewport. The checked-in adapter defines eight narrow page-scoped Site Tools and registers them through `document.modelContext.registerTool` when that API is available. Tools read explicit revisions, mutate candidates through the same domain commands as the ordinary UI, run the worker-backed solver, and leave visible activity entries. Local runtime discovery passed; production-origin discovery in the final supported browser/model remains a release gate.
 
 The human keeps control of the baseline, sees every mutation and warning, can edit normally without WebMCP, and makes the final engineering judgment.
 
