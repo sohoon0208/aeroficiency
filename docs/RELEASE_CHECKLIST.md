@@ -35,7 +35,7 @@ This checklist separates local engineering completion from user-authorized publi
 - [ ] No disqualifying sponsor, administrator, judge, employment, household, or immediate-family relationship applies.
 - [ ] No prohibited financial or preferential support was received.
 - [ ] Entrant owns or is licensed to publish every source file, asset, dependency, and media item.
-- [ ] Entrant approves the public attribution name/handle used in the license, repository, app, video, and Devpost profile.
+- [ ] Entrant approves the public attribution name/handle and Git author email used in the license, repository, app, video, and Devpost profile, or the local history is rewritten with an approved privacy-preserving identity before publication.
 - [ ] If any rule interpretation remains uncertain, organizer clarification is retained privately.
 
 ## 3. User-authorized repository publication
