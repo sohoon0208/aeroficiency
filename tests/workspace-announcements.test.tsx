@@ -192,6 +192,34 @@ describe('workspace announcement ownership', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('The selected design advanced before the edit.');
   });
 
+  it.each([
+    ['VALIDATION_ERROR', 'Input needs correction'],
+    ['ANALYSIS_NOT_FOUND', 'Analysis not found'],
+    ['ANALYSIS_ALREADY_RUNNING', 'Analysis already running'],
+    ['INVALID_COMPARISON', 'Comparison request invalid'],
+    ['INCOMPATIBLE_ANALYSES', 'Analyses are incompatible'],
+    ['DESIGN_LIMIT_REACHED', 'Design limit reached'],
+    ['WORKSPACE_STATE_INVALID', 'Workspace state needs reset'],
+  ])('labels %s with its actual user-facing reason', (code, heading) => {
+    const project = createDefaultProject();
+    const design = project.designs[project.activeDesignId];
+    useProjectStore.setState({
+      project,
+      commandNotice: {
+        kind: 'failure',
+        actor: 'agent',
+        designId: design.designId,
+        code,
+        message: 'Specific bounded failure message.',
+        safeNextAction: 'Specific safe next action.',
+        retryable: false,
+      },
+    });
+    render(<AeroficiencyWorkspace />);
+    expect(screen.getByRole('alert')).toHaveTextContent(heading);
+    expect(screen.queryByText('Command rejected safely')).not.toBeInTheDocument();
+  });
+
   it('shows rejected commands for a non-active candidate with an explicit target label and ID', () => {
     const initial = createDefaultProject();
     const baseline = initial.designs[initial.activeDesignId];

@@ -245,7 +245,11 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
       expectedDesignRevision: expectedRevision ?? design?.revision ?? -1,
       idempotencyKey,
     }, actor);
-    if (transition.state !== state && transition.result.ok) {
+    if (transition.result.ok && transition.result.data.outcome === 'unchanged') {
+      set(transition.state !== state
+        ? { project: transition.state, commandNotice: null }
+        : { commandNotice: null });
+    } else if (transition.state !== state && transition.result.ok) {
       const nextBaseline = transition.state.designs[transition.result.data.baselineDesignId];
       const previousBaseline = transition.state.designs[transition.result.data.previousBaselineDesignId];
       set((current) => ({
@@ -284,7 +288,11 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
       idempotencyKey,
       patch,
     }, actor);
-    if (transition.state !== state) {
+    if (transition.result.ok && transition.result.data.outcome === 'unchanged') {
+      set(transition.state !== state
+        ? { project: transition.state, commandNotice: null }
+        : { commandNotice: null });
+    } else if (transition.state !== state) {
       const fields = transition.result.ok ? Object.keys(transition.result.data.changedFields) : [];
       set({
         project: transition.state,
@@ -320,7 +328,11 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
       idempotencyKey,
       patch,
     }, actor);
-    if (transition.state !== state) {
+    if (transition.result.ok && transition.result.data.outcome === 'unchanged') {
+      set(transition.state !== state
+        ? { project: transition.state, commandNotice: null }
+        : { commandNotice: null });
+    } else if (transition.state !== state) {
       const fields = transition.result.ok ? Object.keys(transition.result.data.changedFields) : [];
       set({
         project: transition.state,
@@ -437,7 +449,7 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
       return { ok: true, replayed: true, data: replayResult };
     }
     if (activeRun) {
-      const result = failure('ANALYSIS_FAILED', 'Another analysis is already running for this project.', 'Wait for it to finish or cancel it before starting a new run.', true);
+      const result = failure('ANALYSIS_ALREADY_RUNNING', 'Another analysis is already running for this project.', 'Wait for it to finish or cancel it before starting a new run.', true);
       set({ commandNotice: notice(result, actor, request.designId) });
       return result;
     }

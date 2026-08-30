@@ -94,8 +94,9 @@ describe('project-store analysis ownership', () => {
     const design = project.designs[project.activeDesignId];
     const first = useProjectStore.getState().runAnalysis(requestFor(project, design), 'human');
     expect(useProjectStore.getState().analysisRun.status).toBe('running');
-    const second = await AEROFICIENCY_TOOLS.find((tool) => tool.name === 'run_aeroelastic_analysis')!.execute(requestFor(project, design)) as { ok: false; error: { message: string; retryable: boolean; safeNextAction: string } };
+    const second = await AEROFICIENCY_TOOLS.find((tool) => tool.name === 'run_aeroelastic_analysis')!.execute(requestFor(project, design)) as { ok: false; error: { code: string; message: string; retryable: boolean; safeNextAction: string } };
     expect(second.ok).toBe(false);
+    expect(second.error.code).toBe('ANALYSIS_ALREADY_RUNNING');
     expect(second.error.message).toMatch(/already running/i);
     expect(second.error.retryable).toBe(true);
     expect(second.error.safeNextAction).toMatch(/finish or cancel/i);
@@ -107,6 +108,48 @@ describe('project-store analysis ownership', () => {
     if (!aborted.ok) expect(aborted.error.code).toBe('ABORTED');
     expect(useProjectStore.getState().analysisRun.status).toBe('aborted');
     expect(useProjectStore.getState().project).toEqual(original);
+  });
+
+  it('keeps benign no-op edits silent and preserves presentation state', () => {
+    const initial = useProjectStore.getState().project;
+    const baseline = initial.designs[initial.activeDesignId];
+    const presentation = {
+      ...createEmptyPresentationFocus(7),
+      focusedPanel: 'station' as const,
+      designId: baseline.designId,
+      analysisId: 'ana_00000000000000000000000001' as const,
+      eta: 0.5,
+      actor: 'agent' as const,
+      message: 'Existing presentation focus.',
+    };
+    useProjectStore.setState({
+      presentation,
+      commandNotice: {
+        kind: 'failure',
+        actor: 'human',
+        designId: baseline.designId,
+        code: 'VALIDATION_ERROR',
+        message: 'Old error.',
+        safeNextAction: 'Correct it.',
+        retryable: false,
+      },
+    });
+
+    const result = useProjectStore.getState().updateGeometry(
+      baseline.designId,
+      { tipTwistDeg: baseline.geometry.tipTwistDeg },
+      'human',
+      createIdempotencyKey(),
+      baseline.revision,
+    );
+
+    expect(result).toMatchObject({ ok: true, replayed: false, data: { outcome: 'unchanged' } });
+    const current = useProjectStore.getState();
+    expect(current.project.projectRevision).toBe(initial.projectRevision);
+    expect(current.project.designs).toEqual(initial.designs);
+    expect(current.project.activities).toEqual(initial.activities);
+    expect(current.presentation).toEqual(presentation);
+    expect(current.commandNotice).toBeNull();
   });
 
   it('routes a retained but stale analysis replay to the verified current replacement', async () => {

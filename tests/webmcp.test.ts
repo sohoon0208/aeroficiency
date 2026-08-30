@@ -118,6 +118,112 @@ describe('bounded Aeroficiency Site Tools surface', () => {
     expect(useProjectStore.getState().commandNotice).toMatchObject({ kind: 'success', code: 'BASELINE_CHANGED' });
   });
 
+  it('returns successful unchanged outcomes for matching writes without visible errors or engineering mutation', async () => {
+    const initial = useProjectStore.getState().project;
+    const baseline = initial.designs[initial.activeDesignId];
+    const initialPresentation = structuredClone(useProjectStore.getState().presentation);
+    const setBaselineTool = AEROFICIENCY_TOOLS.find((tool) => tool.name === 'set_baseline_design')!;
+    const geometryTool = AEROFICIENCY_TOOLS.find((tool) => tool.name === 'update_wing_geometry')!;
+    const structureTool = AEROFICIENCY_TOOLS.find((tool) => tool.name === 'update_wing_structure')!;
+
+    const baselineResult = await setBaselineTool.execute({
+      designId: baseline.designId,
+      expectedProjectRevision: initial.projectRevision,
+      expectedDesignRevision: baseline.revision,
+      idempotencyKey: createIdempotencyKey(),
+    }) as { ok: true; data: { outcome: string; activityId: string | null; invalidatedAnalysisIds: string[] } };
+    expect(baselineResult).toMatchObject({ ok: true, data: { outcome: 'unchanged', activityId: null, invalidatedAnalysisIds: [] } });
+
+    const geometryResult = await geometryTool.execute({
+      designId: baseline.designId,
+      expectedDesignRevision: baseline.revision,
+      idempotencyKey: createIdempotencyKey(),
+      patch: { tipTwistDeg: baseline.geometry.tipTwistDeg },
+    }) as { ok: true; data: { outcome: string; activityId: string | null; changedFields: Record<string, unknown> } };
+    expect(geometryResult).toMatchObject({ ok: true, data: { outcome: 'unchanged', activityId: null, changedFields: {} } });
+
+    const structureResult = await structureTool.execute({
+      designId: baseline.designId,
+      expectedDesignRevision: baseline.revision,
+      idempotencyKey: createIdempotencyKey(),
+      patch: { skinThicknessMm: baseline.structure.skinThicknessMm },
+    }) as { ok: true; data: { outcome: string; activityId: string | null; changedFields: Record<string, unknown> } };
+    expect(structureResult).toMatchObject({ ok: true, data: { outcome: 'unchanged', activityId: null, changedFields: {} } });
+
+    const current = useProjectStore.getState();
+    expect(current.project.projectRevision).toBe(initial.projectRevision);
+    expect(current.project.designs).toEqual(initial.designs);
+    expect(current.project.analyses).toEqual(initial.analyses);
+    expect(current.project.activities).toEqual(initial.activities);
+    expect(current.presentation).toEqual(initialPresentation);
+    expect(current.commandNotice).toBeNull();
+  });
+
+  it('uses precise codes for missing analyses and malformed comparison requests', async () => {
+    const missingReference = createEntityId('ana');
+    const missingCandidate = createEntityId('ana');
+    const summary = await AEROFICIENCY_TOOLS.find((tool) => tool.name === 'get_analysis_summary')!.execute({ analysisId: missingReference }) as DomainFailureResult;
+    const station = await AEROFICIENCY_TOOLS.find((tool) => tool.name === 'inspect_span_station')!.execute({ analysisId: missingReference, eta: 0.5 }) as DomainFailureResult;
+    const missingComparison = await AEROFICIENCY_TOOLS.find((tool) => tool.name === 'compare_designs')!.execute({
+      referenceAnalysisId: missingReference,
+      candidateAnalysisId: missingCandidate,
+    }) as DomainFailureResult;
+    const duplicateComparison = await AEROFICIENCY_TOOLS.find((tool) => tool.name === 'compare_designs')!.execute({
+      referenceAnalysisId: missingReference,
+      candidateAnalysisId: missingReference,
+    }) as DomainFailureResult;
+
+    expect(summary.error.code).toBe('ANALYSIS_NOT_FOUND');
+    expect(station.error.code).toBe('ANALYSIS_NOT_FOUND');
+    expect(missingComparison.error.code).toBe('ANALYSIS_NOT_FOUND');
+    expect(duplicateComparison.error.code).toBe('INVALID_COMPARISON');
+  });
+
+  it('distinguishes incompatible current analyses from stale or invalid comparisons', async () => {
+    let state = createDefaultProject();
+    const baseline = state.designs[state.activeDesignId];
+    const baselineSnapshot = buildAnalysisSnapshot(state, baseline, 'fast');
+    let transition = commitAnalysisSnapshot(state, {
+      designId: baseline.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedDesignRevision: baseline.revision,
+      expectedFlightCaseRevision: state.flightCase.revision,
+      expectedConstraintsRevision: state.constraints.revision,
+      idempotencyKey: createIdempotencyKey(),
+      fidelity: 'fast',
+    }, baselineSnapshot, 'solver');
+    if (!transition.result.ok) throw new Error(transition.result.error.message);
+    state = transition.state;
+    const branch = createCandidateVariant(state, {
+      sourceDesignId: baseline.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedSourceDesignRevision: baseline.revision,
+      candidateLabel: 'Mixed fidelity candidate',
+      idempotencyKey: createIdempotencyKey(),
+    }, 'agent');
+    if (!branch.result.ok) throw new Error(branch.result.error.message);
+    state = branch.state;
+    const candidate = state.designs[branch.result.data.designId];
+    const candidateSnapshot = buildAnalysisSnapshot(state, candidate, 'standard');
+    transition = commitAnalysisSnapshot(state, {
+      designId: candidate.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedDesignRevision: candidate.revision,
+      expectedFlightCaseRevision: state.flightCase.revision,
+      expectedConstraintsRevision: state.constraints.revision,
+      idempotencyKey: createIdempotencyKey(),
+      fidelity: 'standard',
+    }, candidateSnapshot, 'solver');
+    if (!transition.result.ok) throw new Error(transition.result.error.message);
+    useProjectStore.setState({ project: transition.state });
+
+    const comparison = await AEROFICIENCY_TOOLS.find((tool) => tool.name === 'compare_designs')!.execute({
+      referenceAnalysisId: baselineSnapshot.analysisId,
+      candidateAnalysisId: candidateSnapshot.analysisId,
+    }) as DomainFailureResult;
+    expect(comparison.error.code).toBe('INCOMPATIBLE_ANALYSES');
+  });
+
   it('rejects invalid enums, nonfinite numbers, and out-of-range values while allowing Baseline writes', async () => {
     const state = useProjectStore.getState().project;
     const baseline = state.designs[state.activeDesignId];
@@ -676,7 +782,7 @@ describe('bounded Aeroficiency Site Tools surface', () => {
       candidateAnalysisId: oldCandidate.snapshot.analysisId,
     }) as { ok: false; error: { code: string; message: string; safeNextAction: string } };
     expect(result.ok).toBe(false);
-    expect(result.error.code).toBe('VALIDATION_ERROR');
+    expect(result.error.code).toBe('INVALID_COMPARISON');
     expect(result.error.message).toMatch(/current Baseline reference/i);
     expect(result.error.safeNextAction).not.toMatch(/no rerun is required/i);
   });

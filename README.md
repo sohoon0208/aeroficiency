@@ -14,7 +14,7 @@ The normal UI and Site Tools call the same domain commands. Exactly one design h
 
 ## Release status
 
-Release identity: app `0.5.0`, solver `aeroficiency-0.5.0`, tool schema `aeroficiency-webmcp-1.3`.
+Release identity: app `0.5.0`, solver `aeroficiency-0.5.0`, tool schema `aeroficiency-webmcp-1.4`.
 
 The V4/V5 implementation is complete locally:
 
@@ -95,7 +95,7 @@ The canonical challenge scenario deliberately uses two structural proposals. The
 | `get_analysis_summary` | Read | Read a compact immutable V5 analysis summary and model-validity contract |
 | `inspect_span_station` | Presentation | Focus one current right-semispan solver station |
 | `create_candidate_variant` | Write | Idempotently branch a candidate from an explicit source revision |
-| `set_baseline_design` | Write | Make a candidate the Baseline reference while retaining the former Baseline as a candidate |
+| `set_baseline_design` | Write | Select the Baseline reference; re-selecting it is unchanged, while a role change retains the former Baseline as a candidate |
 | `update_wing_geometry` | Write | Apply bounded planform, airfoil-station, or polar-model changes |
 | `update_wing_structure` | Write | Apply bounded gauges or elastic-axis position |
 | `run_aeroelastic_analysis` | Write | Run one revision-checked analysis and commit a validated snapshot |
@@ -166,7 +166,7 @@ The built-in polar is a transparent attached-flow estimate, not XFOIL or experim
 - Idempotent replays cannot duplicate accepted work while retained; evicted old requests fail on stale revisions.
 - Failed, aborted, conflicted, or non-converged runs never replace the last current converged result.
 - Non-converged constraints are all unavailable and cannot be presented as passes.
-- Site Tool payloads use strict closed schemas, stable public errors, bounded histories, and frozen output ceilings.
+- Site Tool payloads use strict closed schemas, reason-specific public errors, bounded histories, and frozen output ceilings. Valid matching writes return `outcome: "unchanged"` without an error or engineering revision.
 - Model limitations stay visible in the header scope dialog and result log.
 
 ## Challenge provenance and license

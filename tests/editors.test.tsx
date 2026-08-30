@@ -27,6 +27,18 @@ describe('case and configured-check editor', () => {
 });
 
 describe('V4/V5 airfoil and polar editor', () => {
+  it('does not submit an unchanged NACA field on blur', () => {
+    const design = createBaselineDesign();
+    const onUpdate = vi.fn(successfulUpdate);
+    render(<AirfoilEditor design={design} editable changedFields={[]} changedActor={null} onUpdate={onUpdate} />);
+
+    const rootCode = screen.getByRole('textbox', { name: 'NACA code at eta 0.000' });
+    fireEvent.focus(rootCode);
+    fireEvent.blur(rootCode);
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('adds a bounded intermediate airfoil station without changing the endpoints', () => {
     const design = createBaselineDesign();
     const onUpdate = vi.fn(successfulUpdate);

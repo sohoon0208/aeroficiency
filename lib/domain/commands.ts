@@ -9,6 +9,7 @@ import type {
   ActivityEvent,
   ActivityId,
   Actor,
+  AnalysisFreshness,
   AnalysisId,
   AnalysisSnapshot,
   DesignId,
@@ -118,13 +119,14 @@ export interface SetBaselineInput {
 }
 
 export interface SetBaselineResult {
+  outcome: 'changed' | 'unchanged';
   baselineDesignId: DesignId;
   baselineDesignRevision: number;
   previousBaselineDesignId: DesignId;
   previousBaselineDesignRevision: number;
   projectRevision: number;
   invalidatedAnalysisIds: AnalysisId[];
-  activityId: string;
+  activityId: string | null;
 }
 
 export function createCandidateVariant(
@@ -151,7 +153,7 @@ export function createCandidateVariant(
     return { state, result: fail('VALIDATION_ERROR', 'Candidate label must contain 1–48 visible characters.', 'Choose a short visible candidate label and retry.', { issues: [{ path: 'candidateLabel', reason: 'Invalid visible label.' }] }) };
   }
   if (Object.keys(state.designs).length >= MAX_DESIGNS) {
-    return { state, result: fail('VALIDATION_ERROR', `This workspace supports at most ${MAX_DESIGNS} designs.`, 'Continue with an existing candidate or reset the demo workspace.') };
+    return { state, result: fail('DESIGN_LIMIT_REACHED', `This workspace supports at most ${MAX_DESIGNS} designs.`, 'Continue with an existing candidate or reset the demo workspace.') };
   }
   const next = cloneState(state);
   const now = runtime.now();
@@ -211,12 +213,9 @@ export function setBaselineDesign(
   if (!target) return { state, result: fail('DESIGN_NOT_FOUND', 'The requested design does not exist.', 'Read the current design state and retry with an explicit design ID.') };
   const baselines = Object.values(state.designs).filter((design) => design.kind === 'baseline');
   if (baselines.length !== 1) {
-    return { state, result: fail('VALIDATION_ERROR', 'The workspace does not contain exactly one Baseline reference.', 'Reset the reference case before changing the Baseline role.') };
+    return { state, result: fail('WORKSPACE_STATE_INVALID', 'The workspace does not contain exactly one Baseline reference.', 'Reset the reference case before changing the Baseline role.') };
   }
   const previousBaseline = baselines[0];
-  if (target.kind === 'baseline') {
-    return { state, result: fail('VALIDATION_ERROR', `${target.label} is already the Baseline reference.`, 'Select a candidate design before changing the Baseline role.') };
-  }
   if (state.projectRevision !== input.expectedProjectRevision || target.revision !== input.expectedDesignRevision) {
     return {
       state,
@@ -225,6 +224,23 @@ export function setBaselineDesign(
         current: { projectRevision: state.projectRevision, designRevision: target.revision, flightCaseRevision: state.flightCase.revision, constraintsRevision: state.constraints.revision },
       }),
     };
+  }
+
+  if (target.kind === 'baseline') {
+    const next = cloneState(state);
+    const now = runtime.now();
+    const data: SetBaselineResult = {
+      outcome: 'unchanged',
+      baselineDesignId: target.designId,
+      baselineDesignRevision: target.revision,
+      previousBaselineDesignId: target.designId,
+      previousBaselineDesignRevision: target.revision,
+      projectRevision: state.projectRevision,
+      invalidatedAnalysisIds: [],
+      activityId: null,
+    };
+    recordIdempotency(next, 'set_baseline_design', input.idempotencyKey, input, data, now);
+    return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
   }
 
   const next = cloneState(state);
@@ -264,6 +280,7 @@ export function setBaselineDesign(
   });
 
   const data: SetBaselineResult = {
+    outcome: 'changed',
     baselineDesignId: nextTarget.designId,
     baselineDesignRevision: nextTarget.revision,
     previousBaselineDesignId: nextPreviousBaseline.designId,
@@ -284,6 +301,7 @@ export interface UpdateDesignInput<TPatch> {
 }
 
 export interface UpdateDesignResult {
+  outcome: 'changed' | 'unchanged';
   designId: DesignId;
   previousDesignRevision: number;
   newDesignRevision: number;
@@ -291,7 +309,7 @@ export interface UpdateDesignResult {
   changedFields: Record<string, { from: number | string; to: number | string; unit?: string }>;
   invalidatedAnalysisId: AnalysisId | null;
   invalidatedComparisonDesignIds: DesignId[];
-  analysisFreshness: 'stale' | 'unavailable';
+  analysisFreshness: AnalysisFreshness;
   activityId: string | null;
 }
 
@@ -365,15 +383,22 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
     }
   }
   if (Object.keys(changedFields).length === 0) {
-    return {
-      state,
-      result: fail(
-        'VALIDATION_ERROR',
-        'The patch matches the current design and no values changed.',
-        'Read the current revision and omit no-op updates; the existing analysis remains current.',
-        { issues: [{ path: 'patch', reason: 'Every supplied value already matches the design.' }] },
-      ),
+    const next = cloneState(state);
+    const now = runtime.now();
+    const data: UpdateDesignResult = {
+      outcome: 'unchanged',
+      designId: design.designId,
+      previousDesignRevision: design.revision,
+      newDesignRevision: design.revision,
+      projectRevision: state.projectRevision,
+      changedFields: {},
+      invalidatedAnalysisId: null,
+      invalidatedComparisonDesignIds: [],
+      analysisFreshness: designAnalysisFreshness(state, design),
+      activityId: null,
     };
+    recordIdempotency(next, tool, input.idempotencyKey, input, data, now);
+    return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
   }
   const next = cloneState(state);
   const now = runtime.now();
@@ -405,6 +430,7 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
     timestamp: now,
   });
   const data: UpdateDesignResult = {
+    outcome: 'changed',
     designId: nextDesign.designId,
     previousDesignRevision,
     newDesignRevision: nextDesign.revision,

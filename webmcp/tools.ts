@@ -399,7 +399,7 @@ function criticalStation(stations: ReturnType<typeof useProjectStore.getState>['
 function getAnalysisSummary(id: AnalysisId): DomainResult<unknown> {
   const state = useProjectStore.getState().project;
   const analysis = state.analyses[id];
-  if (!analysis) return fail('ANALYSIS_REQUIRED', 'The requested immutable analysis does not exist.', 'Run an analysis or read the current design state for available analysis IDs.');
+  if (!analysis) return fail('ANALYSIS_NOT_FOUND', 'The requested immutable analysis does not exist.', 'Run an analysis or read the current design state for available analysis IDs.');
   const design = state.designs[analysis.designId];
   const current = analysisIsCurrent(state, id);
   const currentReplacementId = !current && design.latestAnalysisId && analysisIsCurrent(state, design.latestAnalysisId)
@@ -445,7 +445,7 @@ function getAnalysisSummary(id: AnalysisId): DomainResult<unknown> {
 function inspectStation(id: AnalysisId, eta: number): DomainResult<unknown> {
   const state = useProjectStore.getState().project;
   const analysis = state.analyses[id];
-  if (!analysis) return fail('ANALYSIS_REQUIRED', 'The requested immutable analysis does not exist.', 'Run an analysis or use get_design_state to find an analysis ID.');
+  if (!analysis) return fail('ANALYSIS_NOT_FOUND', 'The requested immutable analysis does not exist.', 'Run an analysis or use get_design_state to find an analysis ID.');
   if (analysis.status !== 'converged') {
     const owner = state.designs[analysis.designId];
     const replacement = owner?.latestAnalysisId && analysisIsCurrent(state, owner.latestAnalysisId) ? owner.latestAnalysisId : null;
@@ -506,13 +506,13 @@ function inspectStation(id: AnalysisId, eta: number): DomainResult<unknown> {
 
 function compareAnalyses(referenceId: AnalysisId, candidateId: AnalysisId): DomainResult<unknown> {
   const state = useProjectStore.getState().project;
-  if (referenceId === candidateId) return fail('VALIDATION_ERROR', 'Reference and candidate analysis IDs must differ.', 'Choose two different immutable analyses.');
+  if (referenceId === candidateId) return fail('INVALID_COMPARISON', 'Reference and candidate analysis IDs must differ.', 'Choose two different immutable analyses.');
   const reference = state.analyses[referenceId];
   const candidate = state.analyses[candidateId];
-  if (!reference || !candidate) return fail('ANALYSIS_REQUIRED', 'One or both immutable analyses do not exist.', 'Run the missing analysis and retry with explicit IDs.');
+  if (!reference || !candidate) return fail('ANALYSIS_NOT_FOUND', 'One or both immutable analyses do not exist.', 'Run the missing analysis and retry with explicit IDs.');
   const referenceDesign = state.designs[reference.designId];
   const candidateDesign = state.designs[candidate.designId];
-  if (referenceDesign?.kind !== 'baseline' || candidateDesign?.kind !== 'candidate') return fail('VALIDATION_ERROR', 'Comparison requires the current Baseline reference and a candidate.', 'Choose the current Baseline analysis as reference and a current candidate analysis as candidate.');
+  if (referenceDesign?.kind !== 'baseline' || candidateDesign?.kind !== 'candidate') return fail('INVALID_COMPARISON', 'Comparison requires the current Baseline reference and a candidate.', 'Choose the current Baseline analysis as reference and a current candidate analysis as candidate.');
   if (!analysisIsCurrent(state, referenceId) || !analysisIsCurrent(state, candidateId)) {
     const currentReferenceId = referenceDesign?.latestAnalysisId && analysisIsCurrent(state, referenceDesign.latestAnalysisId) ? referenceDesign.latestAnalysisId : null;
     const currentCandidateId = candidateDesign?.latestAnalysisId && analysisIsCurrent(state, candidateDesign.latestAnalysisId) ? candidateDesign.latestAnalysisId : null;
@@ -544,7 +544,7 @@ function compareAnalyses(referenceId: AnalysisId, candidateId: AnalysisId): Doma
           : `Current ${replacements} use incompatible fidelity or settings. Run candidate design ${candidateDesign.designId} at ${currentReference?.fidelity ?? 'the chosen shared'} fidelity with matching current settings, then compare the explicit current IDs.`,
     );
   }
-  if (reference.flightCaseRevision !== candidate.flightCaseRevision || reference.constraintsRevision !== candidate.constraintsRevision || reference.fidelity !== candidate.fidelity || reference.solverVersion !== candidate.solverVersion) return fail('VALIDATION_ERROR', 'Analyses use incompatible flight cases, configured checks, fidelity, or solver versions.', 'Run both designs with identical settings before comparing.');
+  if (reference.flightCaseRevision !== candidate.flightCaseRevision || reference.constraintsRevision !== candidate.constraintsRevision || reference.fidelity !== candidate.fidelity || reference.solverVersion !== candidate.solverVersion) return fail('INCOMPATIBLE_ANALYSES', 'Analyses use incompatible flight cases, configured checks, fidelity, or solver versions.', 'Run both designs with identical settings before comparing.');
   const delta = (candidateValue: number, referenceValue: number) => ({ absolute: candidateValue - referenceValue, percent: referenceValue === 0 ? null : 100 * (candidateValue - referenceValue) / referenceValue });
   const wallMassDelta = delta(candidate.metrics.structuralMassKg, reference.metrics.structuralMassKg);
   const wakeDragDelta = delta(candidate.metrics.inducedDragN, reference.metrics.inducedDragN);
@@ -622,7 +622,7 @@ export const AEROFICIENCY_TOOLS: AeroficiencyToolDefinition[] = [
   },
   {
     name: 'set_baseline_design',
-    description: 'Idempotently make an explicit candidate the editable Baseline reference; the previous Baseline remains as a candidate and dependent comparisons become stale.',
+    description: 'Idempotently make an explicit design the editable Baseline reference; an already-selected Baseline returns a successful unchanged outcome, while a role change retains the previous Baseline as a candidate and stales dependent comparisons.',
     inputSchema: objectSchema({ designId: idSchema('des'), expectedProjectRevision: { type: 'integer', minimum: 1 }, expectedDesignRevision: { type: 'integer', minimum: 1 }, idempotencyKey: uuidSchema }, ['designId', 'expectedProjectRevision', 'expectedDesignRevision', 'idempotencyKey']), annotations: annotations(false),
     execute: (input, context) => parsed(setBaselineInput, input, (value) => {
       const result = useProjectStore.getState().setBaseline(value.designId as DesignId, 'agent', value.idempotencyKey, value.expectedDesignRevision, value.expectedProjectRevision);
@@ -632,7 +632,7 @@ export const AEROFICIENCY_TOOLS: AeroficiencyToolDefinition[] = [
   },
   {
     name: 'update_wing_geometry',
-    description: 'Idempotently apply absolute, bounded planform, multi-station airfoil, or section-polar values to any design at an explicit revision; Baseline edits stale dependent comparisons.',
+    description: 'Idempotently apply absolute, bounded planform, multi-station airfoil, or section-polar values to any design at an explicit revision; matching values return a successful unchanged outcome and actual Baseline edits stale dependent comparisons.',
     inputSchema: objectSchema({ designId: idSchema('des'), expectedDesignRevision: { type: 'integer', minimum: 1 }, idempotencyKey: uuidSchema, patch: geometryPatchSchema }, ['designId', 'expectedDesignRevision', 'idempotencyKey', 'patch']), annotations: annotations(false),
     execute: (input, context) => parsed(updateGeometryInput, input, (value) => {
       const result = useProjectStore.getState().updateGeometry(value.designId as DesignId, value.patch, 'agent', value.idempotencyKey, value.expectedDesignRevision);
@@ -642,7 +642,7 @@ export const AEROFICIENCY_TOOLS: AeroficiencyToolDefinition[] = [
   },
   {
     name: 'update_wing_structure',
-    description: 'Idempotently apply absolute, bounded wing-box gauges or elastic-axis location to any design at an explicit revision; Baseline edits stale dependent comparisons.',
+    description: 'Idempotently apply absolute, bounded wing-box gauges or elastic-axis location to any design at an explicit revision; matching values return a successful unchanged outcome and actual Baseline edits stale dependent comparisons.',
     inputSchema: objectSchema({ designId: idSchema('des'), expectedDesignRevision: { type: 'integer', minimum: 1 }, idempotencyKey: uuidSchema, patch: { ...objectSchema({ skinThicknessMm: { type: 'number', minimum: 1.2, maximum: 6 }, frontWebThicknessMm: { type: 'number', minimum: 1.5, maximum: 8 }, rearWebThicknessMm: { type: 'number', minimum: 1.5, maximum: 8 }, elasticAxisXOverC: { type: 'number', exclusiveMinimum: 0.2, maximum: 0.55 } }), minProperties: 1 } }, ['designId', 'expectedDesignRevision', 'idempotencyKey', 'patch']), annotations: annotations(false),
     execute: (input, context) => parsed(updateStructureInput, input, (value) => {
       const result = useProjectStore.getState().updateStructure(value.designId as DesignId, value.patch, 'agent', value.idempotencyKey, value.expectedDesignRevision);

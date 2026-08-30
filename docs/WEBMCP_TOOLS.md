@@ -1,12 +1,12 @@
 # WebMCP Site Tools
 
-Aeroficiency tool schema `aeroficiency-webmcp-1.3` defines exactly nine page-scoped tools in `webmcp/tools.ts`: two pure reads, two presentation actions, and five engineering writes. `webmcp/registerSiteTools.ts` feature-detects and registers them through `document.modelContext.registerTool`. If the API is unavailable, the complete manual workspace remains usable.
+Aeroficiency tool schema `aeroficiency-webmcp-1.4` defines exactly nine page-scoped tools in `webmcp/tools.ts`: two pure reads, two presentation actions, and five engineering writes. `webmcp/registerSiteTools.ts` feature-detects and registers them through `document.modelContext.registerTool`. If the API is unavailable, the complete manual workspace remains usable.
 
 Each registration batch shares one lifecycle abort signal. Cleanup or partial registration failure aborts the batch so a remount cannot leave duplicate tools.
 
 ## Shared-state and trust contract
 
-Human controls and engineering tools call the same Zustand action layer and pure domain commands. Successful engineering writes therefore update the fields, revisions, freshness, results, 3D view, plots, and actor-tagged activity visible to the human. Geometry or structure writes automatically open the affected editor and the mobile Design view, mark the changed fields with an Agent chip, and preserve `document.activeElement`. If a successful worker result commits after the human has selected another design, a polite global notice identifies the background target design and committed analysis without changing selection.
+Human controls and engineering tools call the same Zustand action layer and pure domain commands. Successful changed engineering writes therefore update the fields, revisions, freshness, results, 3D view, plots, and actor-tagged activity visible to the human. A valid request whose absolute values already match returns `outcome: "unchanged"` and does not advance a revision, add activity, invalidate analysis, reset presentation focus, or show an error. Geometry or structure changes automatically open the affected editor and the mobile Design view, mark the changed fields with an Agent chip, and preserve `document.activeElement`. If a successful worker result commits after the human has selected another design, a polite global notice identifies the background target design and committed analysis without changing selection.
 
 Presentation actions are deliberately different: they update only transient visible focus. They never increment `projectRevision`, change a design, create or invalidate an analysis, touch the idempotency ledger, launch the solver, or add engineering activity.
 
@@ -31,9 +31,9 @@ All inputs are untrusted:
 | `inspect_span_station` | Presentation | Resolve `eta` to a station of one current converged analysis and visibly focus that exact evidence |
 | `compare_designs` | Presentation | Validate and visibly pin one exact current baseline/candidate analysis pair without rerunning |
 | `create_candidate_variant` | Engineering write | Idempotently branch an editable candidate from an explicit source revision |
-| `set_baseline_design` | Engineering write | Make one candidate the editable Baseline reference while retaining the former Baseline as a candidate |
-| `update_wing_geometry` | Engineering write | Apply bounded absolute planform, legacy uniform-NACA, full airfoil-station, or SectionPolar values to any design at an explicit revision |
-| `update_wing_structure` | Engineering write | Apply bounded absolute wall gauges or elastic-axis location to any design |
+| `set_baseline_design` | Engineering write | Make one design the editable Baseline reference, or return unchanged when it already is; a role change retains the former Baseline as a candidate |
+| `update_wing_geometry` | Engineering write | Apply bounded absolute planform, legacy uniform-NACA, full airfoil-station, or SectionPolar values to any design at an explicit revision; matching values return unchanged |
+| `update_wing_structure` | Engineering write | Apply bounded absolute wall gauges or elastic-axis location to any design; matching values return unchanged |
 | `run_aeroelastic_analysis` | Engineering write | Run and commit one revision-checked low-order target-lift, torsion-coupled static analysis |
 
 ### Presentation action rules
@@ -44,7 +44,7 @@ All inputs are untrusted:
 
 ### Engineering write rules
 
-Candidate creation accepts `{ sourceDesignId, expectedProjectRevision, expectedSourceDesignRevision, candidateLabel, idempotencyKey }`. Baseline-role changes accept `{ designId, expectedProjectRevision, expectedDesignRevision, idempotencyKey }`; the target must be a candidate, the former Baseline remains available as a candidate, both role-changing designs advance one revision, and dependent analyses become stale. Geometry and structure updates accept `{ designId, expectedDesignRevision, idempotencyKey, patch }` for either role. The geometry patch may contain scalar planform fields, `nacaCode` for a uniform compatibility update, a complete ordered `airfoilStations` array, or a complete `polarModel`. Partial nested station/polar edits are deliberately not accepted: the trust boundary validates one coherent replacement. Analysis accepts `{ designId, expectedProjectRevision, expectedDesignRevision, expectedFlightCaseRevision, expectedConstraintsRevision, idempotencyKey, fidelity }`, where fidelity is `fast` or `standard`.
+Candidate creation accepts `{ sourceDesignId, expectedProjectRevision, expectedSourceDesignRevision, candidateLabel, idempotencyKey }`. Baseline-role selection accepts `{ designId, expectedProjectRevision, expectedDesignRevision, idempotencyKey }`; selecting the existing Baseline succeeds unchanged, while selecting a candidate retains the former Baseline as a candidate, advances both role-changing designs one revision, and makes dependent analyses stale. Geometry and structure updates accept `{ designId, expectedDesignRevision, idempotencyKey, patch }` for either role. Valid patches that already match return unchanged. The geometry patch may contain scalar planform fields, `nacaCode` for a uniform compatibility update, a complete ordered `airfoilStations` array, or a complete `polarModel`. Partial nested station/polar edits are deliberately not accepted: the trust boundary validates one coherent replacement. Analysis accepts `{ designId, expectedProjectRevision, expectedDesignRevision, expectedFlightCaseRevision, expectedConstraintsRevision, idempotencyKey, fidelity }`, where fidelity is `fast` or `standard`.
 
 Airfoil payloads are bounded to two–six root-to-tip stations and NACA4 or 24–161 coordinate points. User SectionPolar payloads are bounded to 18 tables and 61 rows per table with explicit station IDs, Reynolds/Mach metadata, and provenance. JSON Schema, Zod parsing, domain validation, snapshot reconstruction, and worker commit validation all enforce the same invariants.
 
@@ -78,7 +78,7 @@ Analysis-summary freshness is also compact and structured. Current results retur
 
 Full supported bounds and coupled model rules remain sourced from shared constants and are enforced and disclosed through validation, the UI Model Scope, schemas, and this documentation. The analysis summary intentionally avoids duplicating that entire contract: it carries span, required-CL, maximum-twist, and maximum-tip-deflection headline bounds; the trim bracket; and compact but complete assumption/omission categories for summary decisions.
 
-All nine success and validation-error envelopes have deterministic UTF-8 byte ceilings in `tests/tool-output-bounds.test.ts`; maximum bounded project state cannot leak raw histories, imported coordinate arrays, polar rows, or full station results through summary tools. When a non-active design is explicitly inspected, the payload returns that design's full compact detail and only the active design's identity, avoiding duplicate maximum-size geometry while preserving the current selection. Frozen success ceilings are 5,000 bytes for `get_design_state`, **1,500 bytes for `get_analysis_summary`**, 1,500 for station focus, 1,000 for candidate creation, 1,500 for Baseline-role changes, 1,500 for each update, 3,000 for analysis, and 2,500 for comparison. Every runtime result also passes an absolute 6,000-byte egress guard. Tests include multibyte labels, maximum project cardinality, maximum V5 station/polar metadata, and current/stale/replacement/non-converged summary variants.
+All nine success and error envelopes have deterministic UTF-8 byte ceilings in `tests/tool-output-bounds.test.ts`; maximum bounded project state cannot leak raw histories, imported coordinate arrays, polar rows, or full station results through summary tools. When a non-active design is explicitly inspected, the payload returns that design's full compact detail and only the active design's identity, avoiding duplicate maximum-size geometry while preserving the current selection. Frozen success ceilings are 5,000 bytes for `get_design_state`, **1,500 bytes for `get_analysis_summary`**, 1,500 for station focus, 1,000 for candidate creation, 1,500 for Baseline-role changes, 1,500 for each update, 3,000 for analysis, and 2,500 for comparison. Every runtime result also passes an absolute 6,000-byte egress guard. Tests include multibyte labels, maximum project cardinality, maximum V5 station/polar metadata, and current/stale/replacement/non-converged summary variants.
 
 ## Errors and recovery
 
@@ -103,6 +103,8 @@ Failures use a stable envelope:
 ```
 
 The agent should reread state, preserve human changes, and retry with a new UUID. It must not guess revisions, reuse a UUID for a different request, silently replace the chosen Baseline, compare stale results, or imply unsupported physics.
+
+Codes identify the actual failure class: `VALIDATION_ERROR` is reserved for malformed or unsupported values; explicit missing IDs use `DESIGN_NOT_FOUND` or `ANALYSIS_NOT_FOUND`; concurrent solve attempts use `ANALYSIS_ALREADY_RUNNING`; comparison role/order errors use `INVALID_COMPARISON`; matched-setting failures use `INCOMPATIBLE_ANALYSES`; capacity and invariant faults use `DESIGN_LIMIT_REACHED` and `WORKSPACE_STATE_INVALID`. Matching current values are not failures and return a successful unchanged outcome.
 
 Worker, browser, parser, and adapter exception text is treated as untrusted. Public failures use fixed bounded categories such as `MODEL_RANGE_EXCEEDED`, `TARGET_LIFT_UNBRACKETED`, `VLM_SINGULAR`, `NUMERICAL_FAILURE`, `TOOL_EXECUTION_EXCEPTION`, and `TOOL_OUTPUT_LIMIT`; raw stack traces, thrown messages, control characters, and injected adapter fields are discarded. At most six bounded validation issues may be returned.
 

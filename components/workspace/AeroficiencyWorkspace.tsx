@@ -16,7 +16,7 @@ import { configuredCheckSummary, immutableResultState, presentedConstraints, vis
 import { buildCandidateVerdict, classifyDragChange, currentSelectedCandidateAnalysis } from '@/lib/presentation/verdict';
 import { RELEASE_IDENTITY } from '@/lib/release';
 import { chordAtY } from '@/lib/solver/planform';
-import { useProjectStore } from '@/store/projectStore';
+import { useProjectStore, type CommandNotice } from '@/store/projectStore';
 import { AEROFICIENCY_TOOL_COUNT, registerAeroficiencySiteTools } from '@/webmcp/registerSiteTools';
 
 type EditorTab = 'geometry' | 'airfoils' | 'structure' | 'case';
@@ -72,6 +72,31 @@ function analysisCompatibility(reference: AnalysisSnapshot, candidate: AnalysisS
     && reference.constraintsRevision === candidate.constraintsRevision
     && reference.fidelity === candidate.fidelity
     && reference.solverVersion === candidate.solverVersion;
+}
+
+function commandNoticeHeading(notice: CommandNotice) {
+  if (notice.kind === 'replay') return 'Idempotent replay · no duplicate write';
+  if (notice.code === 'BASELINE_CHANGED') return 'Baseline reference changed';
+  if (notice.kind === 'success') return 'Analysis committed · background target';
+  switch (notice.code) {
+    case 'VALIDATION_ERROR': return 'Input needs correction';
+    case 'DESIGN_NOT_FOUND': return 'Design not found';
+    case 'ANALYSIS_NOT_FOUND': return 'Analysis not found';
+    case 'ANALYSIS_ALREADY_RUNNING': return 'Analysis already running';
+    case 'REVISION_CONFLICT': return 'Revision conflict';
+    case 'DUPLICATE_MUTATION_MISMATCH': return 'Idempotency key conflict';
+    case 'ANALYSIS_REQUIRED': return 'Analysis required';
+    case 'STALE_ANALYSIS': return 'Analysis is stale';
+    case 'INVALID_COMPARISON': return 'Comparison request invalid';
+    case 'INCOMPATIBLE_ANALYSES': return 'Analyses are incompatible';
+    case 'DESIGN_LIMIT_REACHED': return 'Design limit reached';
+    case 'WORKSPACE_STATE_INVALID': return 'Workspace state needs reset';
+    case 'ANALYSIS_DID_NOT_CONVERGE': return 'Analysis did not converge';
+    case 'ABORTED': return 'Analysis aborted';
+    case 'TOOL_UNAVAILABLE': return 'Analysis tool unavailable';
+    case 'ANALYSIS_FAILED': return 'Analysis failed';
+    default: return 'Command rejected safely';
+  }
 }
 
 /** Shared human-and-agent engineering workspace. */
@@ -355,7 +380,7 @@ export function AeroficiencyWorkspace() {
       <section className="workspace" aria-busy={runningGlobally}>
         {(presentation.message || standaloneCommandNotice || runAlert) && <div className="notification-stack">
           {presentation.message && <div className={`presentation-focus ${presentation.focusedPanel}`}><span><strong>{presentation.actor === 'agent' ? 'Agent focus applied' : 'Visible evidence focused'}</strong>{presentation.message}</span><button type="button" aria-label="Dismiss focus message" onClick={() => store().clearPresentationFocus()}>×</button></div>}
-          {standaloneCommandNotice && <div className={`command-notice ${standaloneCommandNotice.kind === 'replay' ? 'replay' : standaloneCommandNotice.kind === 'success' ? 'success' : ''} ${standaloneCommandNotice.code === 'REVISION_CONFLICT' ? 'conflict' : ''}`} role={standaloneCommandNotice.kind === 'replay' || standaloneCommandNotice.kind === 'success' ? undefined : 'alert'}><span><strong>{standaloneCommandNotice.kind === 'replay' ? 'Idempotent replay · no duplicate write' : standaloneCommandNotice.code === 'BASELINE_CHANGED' ? 'Baseline reference changed' : standaloneCommandNotice.kind === 'success' ? 'Analysis committed · background target' : standaloneCommandNotice.code === 'REVISION_CONFLICT' ? 'Revision conflict' : 'Command rejected safely'}</strong>Target {commandNoticeTarget}. {standaloneCommandNotice.message} {standaloneCommandNotice.safeNextAction}</span><button type="button" aria-label="Dismiss command notice" onClick={() => store().clearCommandNotice()}>×</button></div>}
+          {standaloneCommandNotice && <div className={`command-notice ${standaloneCommandNotice.kind === 'replay' ? 'replay' : standaloneCommandNotice.kind === 'success' ? 'success' : ''} ${standaloneCommandNotice.code === 'REVISION_CONFLICT' ? 'conflict' : ''}`} role={standaloneCommandNotice.kind === 'replay' || standaloneCommandNotice.kind === 'success' ? undefined : 'alert'}><span><strong>{commandNoticeHeading(standaloneCommandNotice)}</strong>Target {commandNoticeTarget}. {standaloneCommandNotice.message} {standaloneCommandNotice.safeNextAction}</span><button type="button" aria-label="Dismiss command notice" onClick={() => store().clearCommandNotice()}>×</button></div>}
           {runAlert && <div className={`command-notice run-outcome ${runAlert.status === 'conflicted' ? 'conflict' : ''}`} role="alert"><span><strong>{runAlert.status === 'not_converged' ? 'Latest run committed · not converged' : runAlert.status === 'conflicted' ? 'Latest run hit a revision conflict' : runAlert.status === 'aborted' ? 'Latest run was aborted' : 'Latest run failed safely'}</strong>Target {runDesign ? `${runDesign.label} (${runDesign.designId})` : runAlert.designId}. Attempted design r{runAlert.designRevision}; current design r{runDesign?.revision ?? 'unavailable'}. {runAlert.message} {runSafeNextAction} {runAlert.hadCurrentAnalysis ? retainedAnalysisCurrent ? 'The retained converged analysis is still current.' : 'A retained prior analysis is now stale.' : 'No current result was replaced.'}</span><div className="run-outcome-actions">{runAlert.hadCurrentAnalysis && retainedAnalysis && runDesign && <button className="button compact" type="button" onClick={() => { store().selectDesign(runDesign.designId); store().clearAnalysisRunOutcome(); }}>{retainedAnalysisCurrent ? 'Show retained current analysis' : 'Show retained prior analysis'}</button>}<button type="button" aria-label="Dismiss run outcome" onClick={() => store().clearAnalysisRunOutcome()}>×</button></div></div>}
         </div>}
 

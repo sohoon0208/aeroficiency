@@ -9,7 +9,7 @@ import {
 } from '@/lib/domain/commands';
 import { createDefaultProject } from '@/lib/domain/defaults';
 import { createIdempotencyKey } from '@/lib/domain/ids';
-import { MAX_IDEMPOTENCY_RECORDS } from '@/lib/domain/limits';
+import { MAX_DESIGNS, MAX_IDEMPOTENCY_RECORDS } from '@/lib/domain/limits';
 import { evaluateDesignConstraints } from '@/lib/domain/constraints';
 import { designAnalysisFreshness, validateStructure } from '@/lib/domain/validation';
 import type { AnalysisSnapshot, ProjectState, SolverFidelity } from '@/lib/domain/types';
@@ -405,7 +405,7 @@ describe('domain mutation and snapshot boundaries', () => {
     }
   });
 
-  it('rejects a no-op update without invalidating a current analysis', () => {
+  it('accepts a no-op update as unchanged without invalidating a current analysis', () => {
     const branch = branchCandidate(createDefaultProject());
     const candidate = branch.state.designs[branch.designId];
     const snapshot = buildAnalysisSnapshot(branch.state, candidate, 'fast');
@@ -415,18 +415,137 @@ describe('domain mutation and snapshot boundaries', () => {
     const analyzedCandidate = committed.state.designs[candidate.designId];
     expect(designAnalysisFreshness(committed.state, analyzedCandidate)).toBe('current');
 
+    const idempotencyKey = createIdempotencyKey();
     const noOp = updateWingStructure(committed.state, {
       designId: analyzedCandidate.designId,
       expectedDesignRevision: analyzedCandidate.revision,
-      idempotencyKey: createIdempotencyKey(),
+      idempotencyKey,
       patch: { skinThicknessMm: analyzedCandidate.structure.skinThicknessMm },
     }, 'agent');
 
-    expect(noOp.result.ok).toBe(false);
-    if (!noOp.result.ok) expect(noOp.result.error.code).toBe('VALIDATION_ERROR');
-    expect(noOp.state).toBe(committed.state);
+    expect(noOp.result).toMatchObject({
+      ok: true,
+      replayed: false,
+      data: {
+        outcome: 'unchanged',
+        previousDesignRevision: analyzedCandidate.revision,
+        newDesignRevision: analyzedCandidate.revision,
+        projectRevision: committed.state.projectRevision,
+        changedFields: {},
+        invalidatedAnalysisId: null,
+        invalidatedComparisonDesignIds: [],
+        analysisFreshness: 'current',
+        activityId: null,
+      },
+    });
+    expect(noOp.state).not.toBe(committed.state);
+    expect(noOp.state.designs).toEqual(committed.state.designs);
+    expect(noOp.state.activities).toEqual(committed.state.activities);
+    expect(noOp.state.projectRevision).toBe(committed.state.projectRevision);
     expect(designAnalysisFreshness(noOp.state, noOp.state.designs[candidate.designId])).toBe('current');
     expect(noOp.state.analyses[snapshot.analysisId]).toEqual(committed.state.analyses[snapshot.analysisId]);
+
+    const replay = updateWingStructure(noOp.state, {
+      designId: analyzedCandidate.designId,
+      expectedDesignRevision: analyzedCandidate.revision,
+      idempotencyKey,
+      patch: { skinThicknessMm: analyzedCandidate.structure.skinThicknessMm },
+    }, 'agent');
+    expect(replay.result).toMatchObject({ ok: true, replayed: true, data: { outcome: 'unchanged' } });
+    expect(replay.state).toBe(noOp.state);
+
+    const mismatched = updateWingStructure(noOp.state, {
+      designId: analyzedCandidate.designId,
+      expectedDesignRevision: analyzedCandidate.revision,
+      idempotencyKey,
+      patch: { skinThicknessMm: analyzedCandidate.structure.skinThicknessMm + 0.1 },
+    }, 'agent');
+    expect(mismatched.result.ok).toBe(false);
+    if (!mismatched.result.ok) expect(mismatched.result.error.code).toBe('DUPLICATE_MUTATION_MISMATCH');
+  });
+
+  it('accepts re-selecting the current Baseline as unchanged while preserving revision checks', () => {
+    const state = createDefaultProject();
+    const baseline = state.designs[state.activeDesignId];
+    const idempotencyKey = createIdempotencyKey();
+    const unchanged = setBaselineDesign(state, {
+      designId: baseline.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedDesignRevision: baseline.revision,
+      idempotencyKey,
+    }, 'agent');
+
+    expect(unchanged.result).toMatchObject({
+      ok: true,
+      replayed: false,
+      data: {
+        outcome: 'unchanged',
+        baselineDesignId: baseline.designId,
+        baselineDesignRevision: baseline.revision,
+        previousBaselineDesignId: baseline.designId,
+        previousBaselineDesignRevision: baseline.revision,
+        projectRevision: state.projectRevision,
+        invalidatedAnalysisIds: [],
+        activityId: null,
+      },
+    });
+    expect(unchanged.state.designs).toEqual(state.designs);
+    expect(unchanged.state.activities).toEqual(state.activities);
+    expect(unchanged.state.projectRevision).toBe(state.projectRevision);
+
+    const replay = setBaselineDesign(unchanged.state, {
+      designId: baseline.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedDesignRevision: baseline.revision,
+      idempotencyKey,
+    }, 'agent');
+    expect(replay.result).toMatchObject({ ok: true, replayed: true, data: { outcome: 'unchanged' } });
+
+    const stale = setBaselineDesign(state, {
+      designId: baseline.designId,
+      expectedProjectRevision: state.projectRevision + 1,
+      expectedDesignRevision: baseline.revision,
+      idempotencyKey: createIdempotencyKey(),
+    }, 'agent');
+    expect(stale.result.ok).toBe(false);
+    if (!stale.result.ok) expect(stale.result.error.code).toBe('REVISION_CONFLICT');
+  });
+
+  it('distinguishes a design-capacity limit from an invalid workspace role state', () => {
+    let state = createDefaultProject();
+    const baseline = state.designs[state.activeDesignId];
+    for (let index = 1; index < MAX_DESIGNS; index += 1) {
+      const created = createCandidateVariant(state, {
+        sourceDesignId: baseline.designId,
+        expectedProjectRevision: state.projectRevision,
+        expectedSourceDesignRevision: baseline.revision,
+        candidateLabel: `Candidate ${index}`,
+        idempotencyKey: createIdempotencyKey(),
+      }, 'agent');
+      expect(created.result.ok).toBe(true);
+      state = created.state;
+    }
+    const overLimit = createCandidateVariant(state, {
+      sourceDesignId: baseline.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedSourceDesignRevision: baseline.revision,
+      candidateLabel: 'One too many',
+      idempotencyKey: createIdempotencyKey(),
+    }, 'agent');
+    expect(overLimit.result.ok).toBe(false);
+    if (!overLimit.result.ok) expect(overLimit.result.error.code).toBe('DESIGN_LIMIT_REACHED');
+
+    const invalidWorkspace = structuredClone(createDefaultProject());
+    const invalidTarget = invalidWorkspace.designs[invalidWorkspace.activeDesignId];
+    invalidTarget.kind = 'candidate';
+    const invalidRoleChange = setBaselineDesign(invalidWorkspace, {
+      designId: invalidTarget.designId,
+      expectedProjectRevision: invalidWorkspace.projectRevision,
+      expectedDesignRevision: invalidTarget.revision,
+      idempotencyKey: createIdempotencyKey(),
+    }, 'agent');
+    expect(invalidRoleChange.result.ok).toBe(false);
+    if (!invalidRoleChange.result.ok) expect(invalidRoleChange.result.error.code).toBe('WORKSPACE_STATE_INVALID');
   });
 
   it('isolates committed snapshots, returned metrics, and idempotent replay payloads', () => {

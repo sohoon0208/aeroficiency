@@ -6,7 +6,7 @@ This record separates local V5 release-candidate evidence from public challenge 
 
 - Local implementation: `LOCAL_V5_RC_READY`
 - Public/external work: `EXTERNAL_RELEASE_PENDING`
-- App / solver / tool schema: `0.5.0` / `aeroficiency-0.5.0` / `aeroficiency-webmcp-1.3`
+- App / solver / tool schema: `0.5.0` / `aeroficiency-0.5.0` / `aeroficiency-webmcp-1.4`
 - Build identity: injected by `NEXT_PUBLIC_AEROFICIENCY_COMMIT`; local fallback `local`
 
 No repository publication, hosting, recording, upload, or submission is included in this evidence.

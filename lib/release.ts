@@ -5,6 +5,6 @@ const buildCommit = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_AER
 export const RELEASE_IDENTITY = {
   appVersion: '0.5.0',
   solverVersion: SOLVER_VERSION,
-  toolSchemaVersion: 'aeroficiency-webmcp-1.3',
+  toolSchemaVersion: 'aeroficiency-webmcp-1.4',
   buildCommit: buildCommit || 'local',
 } as const;

@@ -112,6 +112,11 @@ function AirfoilStationEditor({
   const commitNaca = () => {
     const code = nacaDraft.trim();
     if (!NACA_PATTERN.test(code)) { setError('Use a supported four-digit NACA code with 6–24% thickness.'); return; }
+    if (station.airfoil.kind === 'NACA4' && code === station.airfoil.code) {
+      setError('');
+      setNacaDraft(station.airfoil.code);
+      return;
+    }
     const result = onChange({ ...station, airfoil: { kind: 'NACA4', code } });
     if (!result.ok) setError(result.error.issues?.[0]?.reason ?? result.error.message); else setError('');
   };
