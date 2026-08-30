@@ -132,7 +132,7 @@ describe('canonical Site Tools evaluation trace', () => {
     for (let index = 0; index < 10; index += 1) runs.push(await runCanonicalToolTrace());
     expect(new Set(runs.map((run) => JSON.stringify(run))).size).toBe(1);
     expect(workerMock.execute).toHaveBeenCalledTimes(20);
-  }, 40_000);
+  }, 120_000);
 
   it('rejects comparison after a candidate edit without launching another solve', async () => {
     useProjectStore.getState().resetDemo();

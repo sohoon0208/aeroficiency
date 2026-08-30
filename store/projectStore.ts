@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import {
   commitAnalysisSnapshot,
+  configureAngleSweep,
   createCandidateVariant,
   analysisIsCurrent,
   preflightAnalysisRun,
@@ -20,6 +21,7 @@ import { createDefaultProject } from '@/lib/domain/defaults';
 import { createIdempotencyKey } from '@/lib/domain/ids';
 import { boundedPublicText, MAX_PUBLIC_SAFE_ACTION_CHARS, normalizeAnalysisException, trustDomainFailure } from '@/lib/domain/publicErrors';
 import type { Actor, AnalysisId, DesignId, DomainFailure, DomainResult, ProjectState, WingGeometry, WingStructure } from '@/lib/domain/types';
+import type { AngleSweepPatch } from '@/lib/domain/commands';
 import type { CouplingProgress } from '@/lib/solver/coupling';
 import { executeAnalysisWorker } from '@/services/analysisController';
 
@@ -99,6 +101,7 @@ export interface ProjectStore {
   setBaseline: (designId: DesignId, actor: Actor, idempotencyKey?: string, expectedRevision?: number, expectedProjectRevision?: number) => ReturnType<typeof setBaselineDesign>['result'];
   updateGeometry: (designId: DesignId, patch: Partial<WingGeometry>, actor: Actor, idempotencyKey?: string, expectedRevision?: number) => ReturnType<typeof updateWingGeometry>['result'];
   updateStructure: (designId: DesignId, patch: Partial<WingStructure>, actor: Actor, idempotencyKey?: string, expectedRevision?: number) => ReturnType<typeof updateWingStructure>['result'];
+  configureAngleSweep: (patch: Partial<AngleSweepPatch>, actor: Actor, idempotencyKey?: string, expectedFlightCaseRevision?: number, expectedProjectRevision?: number) => ReturnType<typeof configureAngleSweep>['result'];
   runAnalysis: (request: RunAnalysisRequest, actor: Actor, signal?: AbortSignal) => Promise<DomainResult<RunAnalysisResult>>;
 }
 
@@ -387,6 +390,26 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
           replayedDesignNextAction(state, designId, transition.result.data.newDesignRevision),
         ),
       });
+    }
+    return transition.result;
+  },
+  configureAngleSweep: (patch, actor, idempotencyKey = createIdempotencyKey(), expectedFlightCaseRevision, expectedProjectRevision) => {
+    const state = get().project;
+    const transition = configureAngleSweep(state, {
+      expectedProjectRevision: expectedProjectRevision ?? state.projectRevision,
+      expectedFlightCaseRevision: expectedFlightCaseRevision ?? state.flightCase.revision,
+      idempotencyKey,
+      patch,
+    }, actor);
+    if (transition.state !== state) {
+      set((current) => ({
+        project: transition.state,
+        presentation: createEmptyPresentationFocus(current.presentation.sequence + 1),
+        mutationHighlight: null,
+        commandNotice: null,
+      }));
+    } else if (!transition.result.ok) {
+      set({ commandNotice: notice(transition.result, actor, null) });
     }
     return transition.result;
   },

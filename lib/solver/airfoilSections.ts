@@ -107,6 +107,25 @@ function reconstructSurfaces(x: readonly number[], camber: readonly number[], ha
   return { upper, lower };
 }
 
+/**
+ * Coordinate files occasionally let the measured upper and lower branches cross
+ * inside the final fraction of a percent of chord. Clamping that crossing to zero
+ * creates several coincident panels, so continue the last positive thickness
+ * linearly to the physical leading/trailing-edge closure instead.
+ */
+function repairCollapsedEdgeThickness(x: readonly number[], values: readonly number[]) {
+  const repaired = values.map((value) => Math.max(0, value));
+  const positive = repaired.map((value, index) => value > 1e-10 ? index : -1).filter((index) => index >= 0);
+  if (!positive.length) return repaired;
+  const first = positive[0];
+  const last = positive.at(-1)!;
+  for (let index = 1; index < first; index += 1) repaired[index] = repaired[first] * x[index] / Math.max(x[first], 1e-12);
+  for (let index = last + 1; index < repaired.length - 1; index += 1) repaired[index] = repaired[last] * (1 - x[index]) / Math.max(1 - x[last], 1e-12);
+  repaired[0] = 0;
+  repaired[repaired.length - 1] = 0;
+  return repaired;
+}
+
 function fromCoordinates(definition: Extract<AirfoilDefinition, { kind: 'COORDINATES' }>, intervals: number): CanonicalAirfoil {
   let points = removeConsecutiveDuplicates(definition.points);
   if (points.length < 24) throw new Error('Imported airfoils require at least 24 distinct contour points.');
@@ -161,7 +180,7 @@ function fromCoordinates(definition: Extract<AirfoilDefinition, { kind: 'COORDIN
     throw new Error('Imported airfoil must retain positive thickness away from the leading and trailing edges.');
   }
   const camber = upperZ.map((value, index) => (value + lowerZ[index]) / 2);
-  const halfThickness = upperZ.map((value, index) => Math.max(0, (value - lowerZ[index]) / 2));
+  const halfThickness = repairCollapsedEdgeThickness(x, upperZ.map((value, index) => (value - lowerZ[index]) / 2));
   const surfaces = reconstructSurfaces(x, camber, halfThickness);
   return {
     label: definition.name.trim(),

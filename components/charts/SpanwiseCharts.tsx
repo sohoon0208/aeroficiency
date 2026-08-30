@@ -18,11 +18,11 @@ function geometrySeries(design: WingDesign): Series[] {
 function analysisSeries(mode: ViewMode, analysis: AnalysisSnapshot | null): Series[] {
   if (!analysis) return [];
   if (mode === 'aero') return [
-    { label: 'Lift per span', unit: 'N/m', color: '#58d0ff', zeroFloor: true, points: analysis.stations.map((station) => ({ eta: station.eta, value: station.liftPerSpanNpm })) },
+    { label: 'Lift per span', unit: 'N/m', color: '#58d0ff', points: analysis.stations.map((station) => ({ eta: station.eta, value: station.liftPerSpanNpm })) },
     { label: 'Elastic twist', unit: 'deg', color: '#b89cff', points: analysis.stations.map((station) => ({ eta: station.eta, value: station.elasticTwistDeg })) },
   ];
   if (mode === 'structure') return [
-    { label: 'Vertical deflection', unit: 'm', color: '#f2b866', zeroFloor: true, points: analysis.stations.map((station) => ({ eta: station.eta, value: station.deflectionM })) },
+    { label: 'Vertical deflection', unit: 'm', color: '#f2b866', points: analysis.stations.map((station) => ({ eta: station.eta, value: station.deflectionM })) },
     { label: 'Modeled yield ratio', unit: '×', color: '#46d39a', limit: 1.5, zeroFloor: true, points: analysis.stations.map((station) => ({ eta: station.eta, value: station.yieldMargin })) },
   ];
   return [];

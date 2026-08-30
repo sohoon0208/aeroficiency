@@ -2,7 +2,7 @@
 
 Generated deterministically by `npm run licenses:generate` from the non-development package graph in `package-lock.json`.
 
-- Lockfile SHA-256: `da2f60115805ed5f75e25207de5168daf45318c0831db8473d0af755b0a5c83d`
+- Lockfile SHA-256: `becfce67b8dcb1a729be1e645ca4769608a2a396e54d89d0875c59468dd116e0`
 - Locked production package entries: 119
 - Non-optional installed entries with inspected metadata: 82
 - Distinct preserved root license/notice documents: 58

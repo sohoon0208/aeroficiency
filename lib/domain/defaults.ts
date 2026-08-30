@@ -61,6 +61,9 @@ export function createDefaultProject(): ProjectState {
       altitudeM: 0,
       airDensityKgM3: 1.225,
       dynamicViscosityPaS: 1.7894e-5,
+      sweepMinAlphaDeg: -4,
+      sweepMaxAlphaDeg: 10,
+      sweepStepAlphaDeg: 0.5,
     },
     constraints: {
       revision: 1,

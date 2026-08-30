@@ -12,6 +12,7 @@ The eval suite checks that an agent uses the intended Site Tools, preserves engi
 | E04 | Update the current Baseline | Revision-checked geometry or structure update | Baseline advances; its result and dependent comparisons become stale |
 | E04b | Make a candidate the Baseline | `set_baseline_design` | Exactly one Baseline; former Baseline retained as a candidate; role-change revisions advance |
 | E04c | Resubmit matching values or the current Baseline | Update or `set_baseline_design` with current values/revisions | Successful `outcome: unchanged`; no error, revision, activity, invalidation, focus reset, or alert |
+| E04d | Configure an AoA sweep | `configure_angle_sweep`, then run one design | Shared case revision advances once; every point is a committed fixed-angle coupled solve; official checks remain trim-based |
 | E05 | Retry candidate creation with one UUID | Same create call twice | One candidate; second result replayed |
 | E06 | Continue after a human edit with old revision | Conflict, reread, fresh-key retry | Human value preserved |
 | E07 | Compare two current analyses | `compare_designs` | Exact ordered pair pinned; no solver or engineering mutation |
@@ -62,14 +63,15 @@ Every answer must distinguish the polar-backed profile estimate and induced-plus
 
 The checked-in suite covers:
 
-- exact nine-tool inventory and portable 2-read/2-presentation/5-write annotations;
+- exact ten-tool inventory and portable 2-read/2-presentation/6-write annotations;
 - strict schemas, registration cleanup, editable-Baseline invalidation, Baseline-role replacement, benign unchanged outcomes, replay/mismatch, conflict recovery, stale worker commits, abort/failure/non-convergence, and exact comparison;
 - V4 airfoil-station ordering, hold/blend semantics, imported-coordinate normalization/rejection, local section geometry, mesh-independent mass, and multi-station snapshot trust-boundary reconstruction;
-- V5 analytic and imported polar validation/interpolation, alpha/Reynolds/span range states, deterministic nonlinear closure, profile/combined drag identities, and end-to-end user-table target-lift solve;
+- V5 analytic and imported polar validation/interpolation, alpha/Reynolds/span range states, deterministic nonlinear closure, profile/combined drag identities, end-to-end user-table target-lift solve, and independently coupled fixed-AoA points;
+- cross-airfoil NACA 0008/0012/0024/2412, Clark Y, S1223, SG6043, and NASA SC(2)-0412 monotonicity, finite-output, positive-drag, Kutta/flux-residual, and representative full-sweep coverage;
 - two-pass numerical workflow and explicit preservation of the selected Baseline;
 - preliminary validity DTO placement and complete omission codes;
 - neutral-drag display boundaries without weakening the strict no-worse check;
-- all nine success/error output envelopes at maximum bounded state, encoded UTF-8 ceilings, an absolute runtime output guard, and containment of adversarial exception/adapter payloads;
+- all ten success/error output envelopes at maximum bounded state, encoded UTF-8 ceilings, an absolute runtime output guard, and containment of adversarial exception/adapter payloads;
 - exact 30-character ID validation, non-empty patch parity, and optional non-mutating explicit-design inspection;
 - bounded-ledger exact replay while retained and fail-closed old create/update/run requests after eviction;
 - visible no-duplicate replay causality, create/update revision freshness, retained/pruned/current analysis replay truth, and replay isolation from an unrelated active run;
@@ -77,9 +79,9 @@ The checked-in suite covers:
 - visible background-target success commits and tool-write editor/mobile exposure, preserving persistent focus and restoring replaced editor-input focus to changed evidence;
 - compact current, stale, replacement, and non-converged analysis summaries below the frozen 1,500-byte UTF-8 success ceiling while full shared bounds remain enforced and disclosed elsewhere;
 - a rendered nine-state matrix covering fresh/current baseline, fresh/failing/passing/stale candidate, non-converged with retained evidence, aborted with retained evidence, and conflict;
-- first-screen copy, exact clipboard prompt, Model Scope dialog, Planform/Airfoils/Structure/Case and Overview/Checks/Compare/Log tabs, five linked engineering views, five accessible check states, focus trap/restore, keyboard tabs, and no-focus-steal behavior.
+- first-screen copy, exact clipboard prompt, Model Scope dialog, Planform/Airfoils/Structure/Case and Overview/Checks/Compare/Log tabs, five linked engineering views, the global AoA scrubber and seven Efficiency plots, five accessible check states, focus trap/restore, keyboard tabs, and no-focus-steal behavior.
 
-The automated local suite exercises all nine tool definitions and the full Baseline → first proposal → correction → final root focus → exact comparison flow, including Baseline editing and role replacement. Fresh discovery and repeated reliability in the final supported browser/model environment remain external release gates.
+The automated local suite exercises all ten tool definitions and the full Baseline → first proposal → correction → final root focus → exact comparison flow, including Baseline editing, role replacement, and sweep configuration. Fresh discovery and repeated reliability in the final supported browser/model environment remain external release gates.
 
 Final release evidence still requires hosted CI and at least 9 successful canonical workflows out of 10 fresh runs in the final supported browser/model environment. A single favorable local trace does not satisfy that external gate.
 

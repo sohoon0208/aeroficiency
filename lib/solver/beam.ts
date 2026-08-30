@@ -253,7 +253,9 @@ export function solveWingStructure(design: WingDesign, aero: AeroResult, signal?
   });
   const root = nodes[0];
   const tip = nodes[nodes.length - 1];
-  if (!Number.isFinite(minimumYieldMargin)) throw new Error('Structural solve requires a nonzero finite aerodynamic load field.');
+  // A genuinely zero-load symmetric section has infinite elastic yield margin.
+  // Retain a large finite JSON-safe sentinel for sweep visualization and trust-boundary transport.
+  if (!Number.isFinite(minimumYieldMargin)) minimumYieldMargin = 1e12;
   return {
     nodes,
     structuralMassKg: expectedStructuralMassKg(design),

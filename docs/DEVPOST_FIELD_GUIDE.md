@@ -45,7 +45,7 @@ Before submission:
 
 - replace every `PENDING_*` token with a logged-out verified public URL;
 - confirm the repository platform recognizes the root MIT license;
-- verify the live site works without an account and exposes exactly nine Site Tools in the supported environment;
+- verify the live site works without an account and exposes exactly ten Site Tools in the supported environment;
 - verify the public video plays while logged out;
 - complete the entrant and eligibility attestations personally;
 - save the submitted URL, confirmation, release commit, deployment ID, and video duration privately.

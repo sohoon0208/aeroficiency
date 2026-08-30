@@ -21,12 +21,16 @@ describe('V5 Reynolds and drag evidence lab', () => {
     const onSelectEta = vi.fn();
     render(<PerformanceLab design={design} analysis={analysis} flightCase={project.flightCase} selectedEta={0.333} onSelectEta={onSelectEta} />);
 
-    expect(screen.getByRole('heading', { name: 'Profile + induced drag evidence' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: /Profile \+ induced drag evidence at α/ })).toBeVisible();
     expect(screen.getByText('Induced')).toBeVisible();
     expect(screen.getByText('Profile')).toBeVisible();
     expect(screen.getByText('Combined wing')).toBeVisible();
     expect(screen.getByText('Estimated wing L/D')).toBeVisible();
-    expect(screen.getAllByRole('img')).toHaveLength(3);
+    expect(screen.getAllByRole('img')).toHaveLength(7);
+    expect(screen.getByRole('img', { name: /Wing lift curve/ })).toBeVisible();
+    expect(screen.getByRole('img', { name: /Wing drag curve/ })).toBeVisible();
+    expect(screen.getByRole('img', { name: /Wing efficiency/ })).toBeVisible();
+    expect(screen.getByRole('img', { name: /Tip deflection response/ })).toBeVisible();
     expect(screen.getByRole('img', { name: /Spanwise Reynolds number/ })).toBeVisible();
     expect(screen.getByRole('img', { name: /Profile drag distribution/ })).toBeVisible();
     expect(screen.getByRole('img', { name: /Local section polar/ })).toBeVisible();

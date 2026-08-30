@@ -85,6 +85,9 @@ export interface FlightCase {
   altitudeM: number;
   airDensityKgM3: number;
   dynamicViscosityPaS: number;
+  sweepMinAlphaDeg: number;
+  sweepMaxAlphaDeg: number;
+  sweepStepAlphaDeg: 0.5 | 1;
 }
 
 export interface DesignConstraints {
@@ -209,8 +212,27 @@ export interface AnalysisSnapshot {
   metrics: AnalysisMetrics;
   stations: SpanStationResult[];
   polarDiagnostics: PolarDiagnostics;
+  angleSweep: AngleSweepResult;
   constraints: ConstraintResult[];
   warnings: string[];
+}
+
+export interface AngleSweepPoint {
+  alphaDeg: number;
+  status: 'converged' | 'not_converged';
+  convergence: AnalysisConvergence;
+  metrics: AnalysisMetrics;
+  stations: SpanStationResult[];
+  polarDiagnostics: PolarDiagnostics;
+}
+
+export interface AngleSweepResult {
+  minimumAlphaDeg: number;
+  maximumAlphaDeg: number;
+  stepAlphaDeg: 0.5 | 1;
+  trimAlphaDeg: number;
+  bestLiftToDragAlphaDeg: number | null;
+  points: AngleSweepPoint[];
 }
 
 export interface ActivityEvent {

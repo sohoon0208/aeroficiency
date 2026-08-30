@@ -5,11 +5,11 @@ This checklist separates local engineering completion from user-authorized publi
 ## 1. Local release candidate
 
 - [x] Final scope matches `README.md` and no cut feature is implied.
-- [x] The UI, snapshots, validation record, eval fixture, and demo all identify solver `aeroficiency-0.5.0`.
+- [x] The UI, snapshots, validation record, eval fixture, and demo all identify solver `aeroficiency-0.6.0`.
 - [x] Fresh reset produces the exact deterministic baseline and no fabricated result.
 - [x] Manual baseline → candidate → edit → analyze → compare workflow passes.
-- [x] Exactly nine Site Tools register once and remain absent when WebMCP is unavailable.
-- [x] Tool classification is exactly two pure reads, two presentation actions, and five engineering writes, using only portable annotation keys.
+- [x] Exactly ten Site Tools register once and remain absent when WebMCP is unavailable.
+- [x] Tool classification is exactly two pure reads, two presentation actions, and six engineering writes, using only portable annotation keys.
 - [x] Station inspection and comparison change only transient presentation state; they do not change revisions, designs, analyses, idempotency, activity, or worker count.
 - [x] Station inspection focuses one exact current solver station; comparison pins the exact ordered baseline/candidate analysis IDs.
 - [x] Human and agent mutations use the same commands and actor labels are truthful.
@@ -24,8 +24,11 @@ This checklist separates local engineering completion from user-authorized publi
 - [x] Public terms distinguish modeled wing-box wall mass, wake-induced drag, SectionPolar profile drag, combined wing drag, estimated wing L/D, and modeled yield ratio.
 - [x] V4 supports two–six user-positioned NACA/imported airfoil stations with validated blend/hold semantics; local geometry drives the loft, wing box, zero-lift angle, and section moment.
 - [x] V5 supports generated or imported station/Reynolds polars, explicit provenance/range states, nonlinear lifting-line closure, profile/combined wing drag, and polar-linked torsion.
+- [x] The configurable AoA range is revisioned and bounded; every sampled point reruns the fixed-angle VLM/polar/structure/torsion coupling and remains distinct from official target-lift checks.
+- [x] The AoA scrubber links signed 3D/load/structure evidence, seven Efficiency plots, and 2D local incidence without hidden reruns or analysis mutation.
+- [x] NACA thin/thick/cambered, Clark Y, S1223, SG6043, and SC(2)-0412 profiles pass the cross-airfoil finite/monotonic/positive-drag and panel-residual matrix; representative full coupled sweeps converge.
 - [x] Full supported bounds derive from shared constants and remain enforced/shared in UI, schemas, validation, and documentation; the summary uses headline bounds, trim, and compact assumption/omission categories.
-- [x] All nine success/error result envelopes stay below frozen UTF-8 byte budgets at maximum bounded state; every `get_analysis_summary` freshness variant remains under 1,500 bytes, and the absolute 6,000-byte runtime guard contains oversized injected results.
+- [x] All ten success/error result envelopes stay below frozen UTF-8 byte budgets at maximum bounded state; every `get_analysis_summary` freshness variant remains under 1,500 bytes, and the absolute 6,000-byte runtime guard contains oversized injected results.
 - [x] Public worker/browser/adapter failures use fixed bounded categories and never expose raw thrown text, stack data, or untrusted returned fields.
 - [x] Advertised and runtime schemas agree on exact 30-character entity IDs, bounded labels, and non-empty allowlisted patches.
 - [x] The neutral drag display policy does not weaken the strict no-worse configured check.
@@ -34,12 +37,12 @@ This checklist separates local engineering completion from user-authorized publi
 - [x] Section Flow uses the linked current station, passes analytic/grid/order tests, shows Kutta/flux/inviscid-drag residuals, and permanently discloses its inviscid attached-flow limits.
 - [x] Efficiency shows immutable local Reynolds/Cl/Cd/range-state evidence plus induced/profile/combined drag without implying whole-aircraft fidelity.
 - [x] The rendered nine-state presentation matrix cannot show a green verdict or canonical success copy for stale, failed, aborted, conflicted, or non-converged attempts before explicit retained-result acknowledgement.
-- [ ] Re-run the local registered-tool browser workflow for the nine-tool contract, canonical two-proposal sequence, exact replay, Baseline-role replacement, and stale-focus preservation with zero console errors.
+- [ ] Re-run the local registered-tool browser workflow for the ten-tool contract, canonical two-proposal sequence, sweep configuration, exact replay, Baseline-role replacement, and stale-focus preservation with zero console errors.
 - [x] 1280×720, 1440×900, tablet, 390×844, keyboard, focus, reduced motion, and 200% effective-layout checks pass without document-level horizontal overflow.
 - [x] `npm ci` succeeds from the final clean local copy.
 - [x] `npm run lint` passes on the final tree.
 - [x] `npm run typecheck` passes on the final tree.
-- [x] `npm run test:run` passes on the final tree (28 files / 154 tests).
+- [x] `npm run test:run` passes on the final tree (30 files / 181 tests).
 - [x] `npm run licenses:check` passes on the final tree (119 entries / 58 distinct texts).
 - [x] `npm run build` passes with only understood, documented non-failing notices.
 - [x] `npm audit --audit-level=high` passes with 0 vulnerabilities.
@@ -78,7 +81,7 @@ This checklist separates local engineering completion from user-authorized publi
 - [ ] No localhost URL appears in public Open Graph/canonical metadata.
 - [ ] Fresh logged-out load works without credentials or payment.
 - [ ] Normal UI works without WebMCP.
-- [ ] Supported ChatGPT in-app browser discovers all and only nine tools.
+- [ ] Supported ChatGPT in-app browser discovers all and only ten tools.
 - [ ] Current Chrome WebMCP path discovers and invokes the same tools.
 - [ ] Live `/` response has CSP, `Origin-Agent-Cluster: ?1`, intended `Permissions-Policy`, `nosniff`, and referrer policy.
 - [ ] CSP permits the worker and all required first-party assets without browser violations.

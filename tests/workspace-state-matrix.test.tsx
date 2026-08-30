@@ -12,7 +12,7 @@ vi.mock('@/components/design/Editors', () => ({
   StructureEditor: () => <div />,
 }));
 vi.mock('@/components/viewport/WingViewport', () => ({ WingViewport: ({ analysis }: { analysis: unknown }) => <div data-testid="viewport" data-has-analysis={analysis ? 'true' : 'false'} /> }));
-vi.mock('@/webmcp/registerSiteTools', () => ({ AEROFICIENCY_TOOL_COUNT: 9, registerAeroficiencySiteTools: vi.fn(() => undefined) }));
+vi.mock('@/webmcp/registerSiteTools', () => ({ AEROFICIENCY_TOOL_COUNT: 10, registerAeroficiencySiteTools: vi.fn(() => undefined) }));
 
 import { AeroficiencyWorkspace } from '@/components/workspace/AeroficiencyWorkspace';
 import { commitAnalysisSnapshot, createCandidateVariant, updateWingStructure } from '@/lib/domain/commands';

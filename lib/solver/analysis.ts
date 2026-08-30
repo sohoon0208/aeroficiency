@@ -4,12 +4,14 @@ import { evaluateDesignConstraints } from '@/lib/domain/constraints';
 import { designInputFingerprint } from '@/lib/domain/validation';
 import type {
   AnalysisSnapshot,
+  AngleSweepPoint,
+  PolarDiagnostics,
   ProjectState,
   SolverFidelity,
   SpanStationResult,
   WingDesign,
 } from '@/lib/domain/types';
-import { runAeroelasticCoupling, type CouplingProgress } from './coupling';
+import { runAeroelasticCoupling, runFixedAngleAeroelasticCoupling, type CoupledResult, type CouplingProgress } from './coupling';
 import { degrees, interpolateLinear } from './math';
 import { localAirfoilSection } from './airfoilSections';
 import { geometricTwistAtY, wingArea, wingAspectRatio } from './planform';
@@ -24,15 +26,7 @@ const defaultRuntime: AnalysisRuntime = {
   createAnalysisId: () => createEntityId('ana'),
 };
 
-export function buildAnalysisSnapshot(
-  state: ProjectState,
-  design: WingDesign,
-  fidelity: SolverFidelity,
-  signal?: AbortSignal,
-  onProgress?: (progress: CouplingProgress) => void,
-  runtime: AnalysisRuntime = defaultRuntime,
-): AnalysisSnapshot {
-  const coupled = runAeroelasticCoupling(design, state.flightCase, fidelity, signal, onProgress);
+function evidenceFromCoupled(state: ProjectState, design: WingDesign, coupled: CoupledResult) {
   const positiveStrips = coupled.aero.strips.filter((strip) => strip.yStartM >= -1e-12).sort((a, b) => a.etaMid - b.etaMid);
   const stripEta = positiveStrips.map((strip) => strip.etaMid);
   const liftPerSpan = positiveStrips.map((strip) => strip.liftPerSpanNpm);
@@ -98,18 +92,20 @@ export function buildAnalysisSnapshot(
     maxBendingStressPa: coupled.structure.maxBendingStressPa,
     maxTorsionalShearPa: coupled.structure.maxTorsionalShearPa,
   };
+  const polarDiagnostics: PolarDiagnostics = {
+    model: design.geometry.polarModel.kind === 'USER_TABLES' ? 'user_section_polars' : 'analytic_attached_polar',
+    profileDragAvailable: true,
+    withinRangeStations: positiveStrips.filter((strip) => strip.polarState === 'within_range').length,
+    analyticEstimateStations: positiveStrips.filter((strip) => strip.polarState === 'analytic_estimate').length,
+    extrapolatedAlphaStations: positiveStrips.filter((strip) => strip.polarState === 'extrapolated_alpha').length,
+    outsideReynoldsStations: positiveStrips.filter((strip) => strip.polarState === 'outside_reynolds').length,
+    outsideAlphaStations: positiveStrips.filter((strip) => strip.polarState === 'outside_alpha').length,
+    reynoldsRange: [Math.min(...positiveStrips.map((strip) => strip.reynoldsNumber)), Math.max(...positiveStrips.map((strip) => strip.reynoldsNumber))],
+    effectiveAlphaRangeDeg: [Math.min(...positiveStrips.map((strip) => degrees(strip.effectiveAlphaRad))), Math.max(...positiveStrips.map((strip) => degrees(strip.effectiveAlphaRad)))],
+    provenance: [...new Set(positiveStrips.map((strip) => strip.polarProvenance))].slice(0, 6),
+  };
   return {
-    analysisId: runtime.createAnalysisId(),
-    designId: design.designId,
-    designKind: design.kind,
     status,
-    designRevision: design.revision,
-    flightCaseRevision: state.flightCase.revision,
-    constraintsRevision: state.constraints.revision,
-    fidelity,
-    solverVersion: state.solverVersion,
-    inputFingerprint: designInputFingerprint(state, design, fidelity),
-    createdAt: runtime.now(),
     convergence: {
       iterations: coupled.diagnostics.iterations,
       equilibriumResidual: coupled.diagnostics.equilibriumResidualRad,
@@ -119,27 +115,77 @@ export function buildAnalysisSnapshot(
     },
     metrics,
     stations,
-    polarDiagnostics: {
-      model: design.geometry.polarModel.kind === 'USER_TABLES' ? 'user_section_polars' : 'analytic_attached_polar',
-      profileDragAvailable: true,
-      withinRangeStations: positiveStrips.filter((strip) => strip.polarState === 'within_range').length,
-      analyticEstimateStations: positiveStrips.filter((strip) => strip.polarState === 'analytic_estimate').length,
-      extrapolatedAlphaStations: positiveStrips.filter((strip) => strip.polarState === 'extrapolated_alpha').length,
-      outsideReynoldsStations: positiveStrips.filter((strip) => strip.polarState === 'outside_reynolds').length,
-      outsideAlphaStations: positiveStrips.filter((strip) => strip.polarState === 'outside_alpha').length,
-      reynoldsRange: [Math.min(...positiveStrips.map((strip) => strip.reynoldsNumber)), Math.max(...positiveStrips.map((strip) => strip.reynoldsNumber))],
-      effectiveAlphaRangeDeg: [Math.min(...positiveStrips.map((strip) => degrees(strip.effectiveAlphaRad))), Math.max(...positiveStrips.map((strip) => degrees(strip.effectiveAlphaRad)))],
-      provenance: [...new Set(positiveStrips.map((strip) => strip.polarProvenance))].slice(0, 6),
+    polarDiagnostics,
+  };
+}
+
+function sweepAngles(state: ProjectState) {
+  const { sweepMinAlphaDeg: minimum, sweepMaxAlphaDeg: maximum, sweepStepAlphaDeg: step } = state.flightCase;
+  const intervalCount = Math.round((maximum - minimum) / step);
+  return Array.from({ length: intervalCount + 1 }, (_, index) => Number((minimum + index * step).toFixed(10)));
+}
+
+export function buildAnalysisSnapshot(
+  state: ProjectState,
+  design: WingDesign,
+  fidelity: SolverFidelity,
+  signal?: AbortSignal,
+  onProgress?: (progress: CouplingProgress) => void,
+  runtime: AnalysisRuntime = defaultRuntime,
+): AnalysisSnapshot {
+  const coupled = runAeroelasticCoupling(design, state.flightCase, fidelity, signal, (progress) => onProgress?.({ ...progress, scope: 'trim' }));
+  const evidence = evidenceFromCoupled(state, design, coupled);
+  const angles = sweepAngles(state);
+  const trimTwist = coupled.structure.nodes.map((node) => node.elasticTwistRad);
+  const points: AngleSweepPoint[] = angles.map((alphaDeg, index) => {
+    const fixed = runFixedAngleAeroelasticCoupling(
+      design,
+      state.flightCase,
+      fidelity,
+      alphaDeg,
+      signal,
+      (progress) => onProgress?.({ ...progress, scope: 'sweep', sweepIndex: index + 1, sweepCount: angles.length, alphaDeg }),
+      trimTwist,
+    );
+    const point = evidenceFromCoupled(state, design, fixed);
+    return { alphaDeg, ...point, metrics: { ...point.metrics, trimmedAlphaDeg: alphaDeg } };
+  });
+  const best = points
+    .filter((point) => point.status === 'converged' && point.metrics.liftN > 0)
+    .reduce<AngleSweepPoint | null>((current, point) => !current || point.metrics.estimatedWingLiftToDrag > current.metrics.estimatedWingLiftToDrag ? point : current, null);
+  return {
+    analysisId: runtime.createAnalysisId(),
+    designId: design.designId,
+    designKind: design.kind,
+    status: evidence.status,
+    designRevision: design.revision,
+    flightCaseRevision: state.flightCase.revision,
+    constraintsRevision: state.constraints.revision,
+    fidelity,
+    solverVersion: state.solverVersion,
+    inputFingerprint: designInputFingerprint(state, design, fidelity),
+    createdAt: runtime.now(),
+    convergence: evidence.convergence,
+    metrics: evidence.metrics,
+    stations: evidence.stations,
+    polarDiagnostics: evidence.polarDiagnostics,
+    angleSweep: {
+      minimumAlphaDeg: state.flightCase.sweepMinAlphaDeg,
+      maximumAlphaDeg: state.flightCase.sweepMaxAlphaDeg,
+      stepAlphaDeg: state.flightCase.sweepStepAlphaDeg,
+      trimAlphaDeg: evidence.metrics.trimmedAlphaDeg,
+      bestLiftToDragAlphaDeg: best?.alphaDeg ?? null,
+      points,
     },
     constraints: evaluateDesignConstraints(
       state,
       design,
       fidelity,
-      status,
-      metrics.structuralMassKg,
-      metrics.inducedDragN,
-      metrics.minYieldMargin,
-      metrics.tipDeflectionM,
+      evidence.status,
+      evidence.metrics.structuralMassKg,
+      evidence.metrics.inducedDragN,
+      evidence.metrics.minYieldMargin,
+      evidence.metrics.tipDeflectionM,
     ),
     warnings: [...MODEL_WARNINGS],
   };

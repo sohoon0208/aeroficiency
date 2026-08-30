@@ -32,7 +32,8 @@ function modeColor(analysis: AnalysisSnapshot | null, mode: ViewMode, eta: numbe
   const color = new THREE.Color('#58d0ff');
   if (mode === 'aero' && analysis) {
     const maxLoad = Math.max(...analysis.stations.map((station) => Math.abs(station.liftPerSpanNpm)), 1);
-    return color.lerp(new THREE.Color('#f2b866'), Math.min(1, Math.abs(Number(interpolateStationValue(analysis, eta, 'liftPerSpanNpm'))) / maxLoad));
+    const load = Number(interpolateStationValue(analysis, eta, 'liftPerSpanNpm'));
+    return color.lerp(new THREE.Color(load >= 0 ? '#f2b866' : '#b89cff'), Math.min(1, Math.abs(load) / maxLoad));
   }
   if (mode === 'structure' && analysis) {
     const margin = interpolateStationValue(analysis, eta, 'yieldMargin');
@@ -149,8 +150,8 @@ function AirfoilStationMarkers({ design, analysis, deformed }: { design: WingDes
 function Legend({ design, analysis, mode, yieldLimit, selectedEta }: { design: WingDesign; analysis: AnalysisSnapshot | null; mode: ViewMode; yieldLimit: number; selectedEta: number }) {
   if (mode === 'geometry') return <div className="viewport-scale"><span className="scale-cyan" />{resolvedAirfoilStations(design.geometry).length} airfoil stations<b>{localAirfoilSection(design.geometry, selectedEta, 40).label} · spars .20c / .65c</b></div>;
   if (mode === 'aero') {
-    const peak = analysis ? Math.max(...analysis.stations.map((station) => Math.abs(station.liftPerSpanNpm))) : null;
-    return <div className="viewport-scale"><span className="scale-aero" />Lift / span<b>{peak === null ? 'Analysis required' : `0 → ${peak.toFixed(0)} N/m`}</b></div>;
+    const range = analysis ? [Math.min(...analysis.stations.map((station) => station.liftPerSpanNpm)), Math.max(...analysis.stations.map((station) => station.liftPerSpanNpm))] : null;
+    return <div className="viewport-scale"><span className="scale-aero" />Signed lift / span<b>{range === null ? 'Analysis required' : `${range[0].toFixed(0)} → 0 → ${range[1].toFixed(0)} N/m`}</b></div>;
   }
   return <div className="viewport-scale"><span className="scale-structure" />Modeled yield ratio<b>red &lt; {yieldLimit.toFixed(2)}× · green ≥ {(yieldLimit * 1.5).toFixed(2)}×</b></div>;
 }

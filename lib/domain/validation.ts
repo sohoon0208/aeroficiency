@@ -108,6 +108,17 @@ export function validateFlightCase(flightCase: FlightCase): DomainIssue[] {
   if (!inRange(flightCase.altitudeM, DESIGN_LIMITS.altitudeM)) issues.push({ path: 'flightCase.altitudeM', reason: `Altitude must remain within ${DESIGN_LIMITS.altitudeM[0]}–${DESIGN_LIMITS.altitudeM[1]} m.` });
   if (!inRange(flightCase.airDensityKgM3, DESIGN_LIMITS.airDensityKgM3)) issues.push({ path: 'flightCase.airDensityKgM3', reason: 'Air density must be finite and within 0.25–1.50 kg/m³.' });
   if (!inRange(flightCase.dynamicViscosityPaS, DESIGN_LIMITS.dynamicViscosityPaS)) issues.push({ path: 'flightCase.dynamicViscosityPaS', reason: 'Dynamic viscosity must be finite and within the supported atmospheric range.' });
+  const sweep = SOLVER_SETTINGS.angleSweep;
+  if (!inRange(flightCase.sweepMinAlphaDeg, [sweep.minimumDeg, sweep.maximumDeg])) issues.push({ path: 'flightCase.sweepMinAlphaDeg', reason: `Minimum sweep angle must remain within ${sweep.minimumDeg}–${sweep.maximumDeg} degrees.` });
+  if (!inRange(flightCase.sweepMaxAlphaDeg, [sweep.minimumDeg, sweep.maximumDeg])) issues.push({ path: 'flightCase.sweepMaxAlphaDeg', reason: `Maximum sweep angle must remain within ${sweep.minimumDeg}–${sweep.maximumDeg} degrees.` });
+  if (!sweep.allowedStepDeg.includes(flightCase.sweepStepAlphaDeg)) issues.push({ path: 'flightCase.sweepStepAlphaDeg', reason: `Sweep increment must be ${sweep.allowedStepDeg.join(' or ')} degrees.` });
+  if (Number.isFinite(flightCase.sweepMinAlphaDeg) && Number.isFinite(flightCase.sweepMaxAlphaDeg) && Number.isFinite(flightCase.sweepStepAlphaDeg)) {
+    const span = flightCase.sweepMaxAlphaDeg - flightCase.sweepMinAlphaDeg;
+    const intervals = span / flightCase.sweepStepAlphaDeg;
+    if (span < sweep.minimumSpanDeg) issues.push({ path: 'flightCase.sweepMaxAlphaDeg', reason: `The AoA sweep must span at least ${sweep.minimumSpanDeg} degrees.` });
+    if (Math.abs(intervals - Math.round(intervals)) > 1e-9) issues.push({ path: 'flightCase.sweepStepAlphaDeg', reason: 'The selected increment must divide the AoA range exactly.' });
+    if (Math.round(intervals) + 1 > sweep.maximumPointCount) issues.push({ path: 'flightCase.sweepStepAlphaDeg', reason: `The AoA sweep may contain at most ${sweep.maximumPointCount} solved points.` });
+  }
   return issues;
 }
 

@@ -1,6 +1,6 @@
 # WebMCP Site Tools
 
-Aeroficiency tool schema `aeroficiency-webmcp-1.4` defines exactly nine page-scoped tools in `webmcp/tools.ts`: two pure reads, two presentation actions, and five engineering writes. `webmcp/registerSiteTools.ts` feature-detects and registers them through `document.modelContext.registerTool`. If the API is unavailable, the complete manual workspace remains usable.
+Aeroficiency tool schema `aeroficiency-webmcp-1.5` defines exactly ten page-scoped tools in `webmcp/tools.ts`: two pure reads, two presentation actions, and six engineering writes. `webmcp/registerSiteTools.ts` feature-detects and registers them through `document.modelContext.registerTool`. If the API is unavailable, the complete manual workspace remains usable.
 
 Each registration batch shares one lifecycle abort signal. Cleanup or partial registration failure aborts the batch so a remount cannot leave duplicate tools.
 
@@ -27,14 +27,15 @@ All inputs are untrusted:
 | Tool | Class | Contract |
 |---|---|---|
 | `get_design_state` | Pure read | One full compact design: active by default, or an explicitly requested design while retaining the active identity; compact summaries for all designs; revisions, airfoil/polar metadata, freshness, case, checks, model status, and two recent activities |
-| `get_analysis_summary` | Pure read | One immutable V5 analysis with mass, induced/profile/combined drag, wing L/D, currentness, convergence, checks, one yield-critical station, and compact model validity |
+| `get_analysis_summary` | Pure read | One immutable V5 analysis with mass, induced/profile/combined drag, wing L/D, currentness, convergence, compact fixed-AoA sweep status, checks, one yield-critical station, and compact model validity |
 | `inspect_span_station` | Presentation | Resolve `eta` to a station of one current converged analysis and visibly focus that exact evidence |
 | `compare_designs` | Presentation | Validate and visibly pin one exact current baseline/candidate analysis pair without rerunning |
 | `create_candidate_variant` | Engineering write | Idempotently branch an editable candidate from an explicit source revision |
 | `set_baseline_design` | Engineering write | Make one design the editable Baseline reference, or return unchanged when it already is; a role change retains the former Baseline as a candidate |
 | `update_wing_geometry` | Engineering write | Apply bounded absolute planform, legacy uniform-NACA, full airfoil-station, or SectionPolar values to any design at an explicit revision; matching values return unchanged |
 | `update_wing_structure` | Engineering write | Apply bounded absolute wall gauges or elastic-axis location to any design; matching values return unchanged |
-| `run_aeroelastic_analysis` | Engineering write | Run and commit one revision-checked low-order target-lift, torsion-coupled static analysis |
+| `configure_angle_sweep` | Engineering write | Idempotently configure the shared fixed-AoA range and step at explicit project/flight-case revisions |
+| `run_aeroelastic_analysis` | Engineering write | Run and commit one revision-checked low-order target-lift trim plus the configured fixed-AoA, torsion-coupled sweep |
 
 ### Presentation action rules
 
@@ -44,11 +45,11 @@ All inputs are untrusted:
 
 ### Engineering write rules
 
-Candidate creation accepts `{ sourceDesignId, expectedProjectRevision, expectedSourceDesignRevision, candidateLabel, idempotencyKey }`. Baseline-role selection accepts `{ designId, expectedProjectRevision, expectedDesignRevision, idempotencyKey }`; selecting the existing Baseline succeeds unchanged, while selecting a candidate retains the former Baseline as a candidate, advances both role-changing designs one revision, and makes dependent analyses stale. Geometry and structure updates accept `{ designId, expectedDesignRevision, idempotencyKey, patch }` for either role. Valid patches that already match return unchanged. The geometry patch may contain scalar planform fields, `nacaCode` for a uniform compatibility update, a complete ordered `airfoilStations` array, or a complete `polarModel`. Partial nested station/polar edits are deliberately not accepted: the trust boundary validates one coherent replacement. Analysis accepts `{ designId, expectedProjectRevision, expectedDesignRevision, expectedFlightCaseRevision, expectedConstraintsRevision, idempotencyKey, fidelity }`, where fidelity is `fast` or `standard`.
+Candidate creation accepts `{ sourceDesignId, expectedProjectRevision, expectedSourceDesignRevision, candidateLabel, idempotencyKey }`. Baseline-role selection accepts `{ designId, expectedProjectRevision, expectedDesignRevision, idempotencyKey }`; selecting the existing Baseline succeeds unchanged, while selecting a candidate retains the former Baseline as a candidate, advances both role-changing designs one revision, and makes dependent analyses stale. Geometry and structure updates accept `{ designId, expectedDesignRevision, idempotencyKey, patch }` for either role. Valid patches that already match return unchanged. The geometry patch may contain scalar planform fields, `nacaCode` for a uniform compatibility update, a complete ordered `airfoilStations` array, or a complete `polarModel`. Partial nested station/polar edits are deliberately not accepted: the trust boundary validates one coherent replacement. Sweep configuration accepts `{ expectedProjectRevision, expectedFlightCaseRevision, idempotencyKey, patch }`, where `patch` contains the minimum, maximum, and 0.5° or 1° step; it advances the shared flight-case revision and stales every dependent analysis only when values actually change. Analysis accepts `{ designId, expectedProjectRevision, expectedDesignRevision, expectedFlightCaseRevision, expectedConstraintsRevision, idempotencyKey, fidelity }`, where fidelity is `fast` or `standard`.
 
 Airfoil payloads are bounded to two–six root-to-tip stations and NACA4 or 24–161 coordinate points. User SectionPolar payloads are bounded to 18 tables and 61 rows per table with explicit station IDs, Reynolds/Mach metadata, and provenance. JSON Schema, Zod parsing, domain validation, snapshot reconstruction, and worker commit validation all enforce the same invariants.
 
-Only one project analysis runs at a time. A converged validated snapshot can become current. A validated non-converged snapshot may be retained for diagnostics, but returns `ANALYSIS_DID_NOT_CONVERGE`, keeps checks unavailable, and does not displace a prior current converged result. Failed, aborted, stale, or fingerprint-mismatched work cannot commit.
+Only one project analysis runs at a time. The worker first solves the official target-lift trim, then independently reruns the fixed-angle aerodynamic and torsional coupling at every configured angle; sweep points are not scaled copies of the trim solution. A converged validated snapshot can become current. A validated non-converged snapshot may be retained for diagnostics, but returns `ANALYSIS_DID_NOT_CONVERGE`, keeps checks unavailable, and does not displace a prior current converged result. Failed, aborted, stale, or fingerprint-mismatched work cannot commit.
 
 An identical UUID/request pair replays the original result without adding a design revision, analysis, idempotency record, or engineering activity while the bounded idempotency record is retained. The page announces that replay as a polite, globally visible “no duplicate write” event, including when another design is selected or an unrelated run is active. If an old key has been evicted from the bounded ledger, an update fails its stale expected design revision, while creation and analysis fail their stale expected project/design revisions; none can silently duplicate work.
 
@@ -78,7 +79,7 @@ Analysis-summary freshness is also compact and structured. Current results retur
 
 Full supported bounds and coupled model rules remain sourced from shared constants and are enforced and disclosed through validation, the UI Model Scope, schemas, and this documentation. The analysis summary intentionally avoids duplicating that entire contract: it carries span, required-CL, maximum-twist, and maximum-tip-deflection headline bounds; the trim bracket; and compact but complete assumption/omission categories for summary decisions.
 
-All nine success and error envelopes have deterministic UTF-8 byte ceilings in `tests/tool-output-bounds.test.ts`; maximum bounded project state cannot leak raw histories, imported coordinate arrays, polar rows, or full station results through summary tools. When a non-active design is explicitly inspected, the payload returns that design's full compact detail and only the active design's identity, avoiding duplicate maximum-size geometry while preserving the current selection. Frozen success ceilings are 5,000 bytes for `get_design_state`, **1,500 bytes for `get_analysis_summary`**, 1,500 for station focus, 1,000 for candidate creation, 1,500 for Baseline-role changes, 1,500 for each update, 3,000 for analysis, and 2,500 for comparison. Every runtime result also passes an absolute 6,000-byte egress guard. Tests include multibyte labels, maximum project cardinality, maximum V5 station/polar metadata, and current/stale/replacement/non-converged summary variants.
+All ten success and error envelopes have deterministic UTF-8 byte ceilings in `tests/tool-output-bounds.test.ts`; maximum bounded project state cannot leak raw histories, imported coordinate arrays, polar rows, or full station results through summary tools. When a non-active design is explicitly inspected, the payload returns that design's full compact detail and only the active design's identity, avoiding duplicate maximum-size geometry while preserving the current selection. Frozen success ceilings are 5,000 bytes for `get_design_state`, **1,500 bytes for `get_analysis_summary`**, 1,500 for station focus, 1,000 for candidate creation, 1,500 for Baseline-role changes, 1,500 for each geometry/structure/sweep update, 3,000 for analysis, and 2,500 for comparison. Every runtime result also passes an absolute 6,000-byte egress guard. Tests include multibyte labels, maximum project cardinality, maximum V5 station/polar metadata, sweep summaries, and current/stale/replacement/non-converged summary variants.
 
 ## Errors and recovery
 
@@ -115,7 +116,7 @@ When stale evidence has an existing current replacement, recovery may name it. C
 Every definition emits only the portable annotation keys used by this release:
 
 - `readOnlyHint: true` only for `get_design_state` and `get_analysis_summary`
-- `readOnlyHint: false` for both presentation actions and all five engineering writes
+- `readOnlyHint: false` for both presentation actions and all six engineering writes
 - `untrustedContentHint: true` for all tools because project-derived labels and strings can enter results
 
 These are planning hints, not authorization. Domain validation remains authoritative.

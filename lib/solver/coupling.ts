@@ -1,6 +1,6 @@
 import type { FlightCase, SolverFidelity, WingDesign } from '@/lib/domain/types';
 import { SOLVER_SETTINGS } from '@/lib/domain/limits';
-import { AeroError, solveTargetLiftAerodynamics, type AeroResult } from './aero';
+import { AeroError, solveFixedAngleAerodynamics, solveTargetLiftAerodynamics, type AeroResult } from './aero';
 import { solveWingStructure, type StructuralResult } from './beam';
 import { maxAbs } from './math';
 
@@ -8,6 +8,10 @@ export interface CouplingProgress {
   iteration: number;
   maxIterations: number;
   phase: 'aerodynamics' | 'structure' | 'verification';
+  scope?: 'trim' | 'sweep';
+  sweepIndex?: number;
+  sweepCount?: number;
+  alphaDeg?: number;
 }
 
 export interface CouplingDiagnostics {
@@ -70,25 +74,27 @@ function diagnostic(
   };
 }
 
-function converged(values: CouplingDiagnostics) {
+function converged(values: CouplingDiagnostics, requireTargetLift: boolean) {
   return values.iterations >= 2
     && values.equilibriumResidualRad <= SOLVER_SETTINGS.equilibriumToleranceRad
     && values.iterateChangeRad <= SOLVER_SETTINGS.iterateChangeToleranceRad
     && values.relativeLoadChange <= SOLVER_SETTINGS.relativeLoadTolerance
-    && values.relativeLiftError <= SOLVER_SETTINGS.coupledLiftTolerance;
+    && (!requireTargetLift || values.relativeLiftError <= SOLVER_SETTINGS.coupledLiftTolerance);
 }
 
-export function runAeroelasticCoupling(
+function runCoupling(
   design: WingDesign,
   flightCase: FlightCase,
   fidelity: SolverFidelity,
+  fixedAlphaDeg: number | null,
   signal?: AbortSignal,
   onProgress?: (progress: CouplingProgress) => void,
+  initialTwistRad?: readonly number[],
 ): CoupledResult {
   const panelCount = fidelity === 'fast' ? SOLVER_SETTINGS.fast.fullSpanPanelCount : SOLVER_SETTINGS.standard.fullSpanPanelCount;
   const semispanNodeCount = panelCount / 2 + 1;
   const eta = Array.from({ length: semispanNodeCount }, (_, index) => -Math.cos(Math.PI * (panelCount / 2 + index) / panelCount));
-  let twist = Array(semispanNodeCount).fill(0);
+  let twist = initialTwistRad?.length === semispanNodeCount ? [...initialTwistRad] : Array(semispanNodeCount).fill(0);
   let previousLoads: number[] | null = null;
   let last: CoupledResult | null = null;
 
@@ -96,7 +102,9 @@ export function runAeroelasticCoupling(
     for (let iteration = 1; iteration <= SOLVER_SETTINGS.couplingMaxIterations; iteration += 1) {
       if (signal?.aborted) throw new CouplingError('ABORTED', 'Aeroelastic solve was aborted.');
       onProgress?.({ iteration, maxIterations: SOLVER_SETTINGS.couplingMaxIterations, phase: 'aerodynamics' });
-      const aero = solveTargetLiftAerodynamics(design.geometry, flightCase, { eta, twistRad: twist }, panelCount, signal);
+      const aero = fixedAlphaDeg === null
+        ? solveTargetLiftAerodynamics(design.geometry, flightCase, { eta, twistRad: twist }, panelCount, signal)
+        : solveFixedAngleAerodynamics(design.geometry, flightCase, { eta, twistRad: twist }, panelCount, fixedAlphaDeg, signal);
       const loads = aero.strips.filter((strip) => strip.yStartM >= -1e-12).map((strip) => strip.verticalForceN);
       onProgress?.({ iteration, maxIterations: SOLVER_SETTINGS.couplingMaxIterations, phase: 'structure' });
       const structure = solveWingStructure(design, aero, signal);
@@ -106,16 +114,18 @@ export function runAeroelasticCoupling(
       const diagnostics = diagnostic(iteration, rawTwist, twist, nextTwist, loads, previousLoads, aero);
       last = { status: 'not_converged', aero, structure, diagnostics };
 
-      if (converged(diagnostics)) {
+      if (converged(diagnostics, fixedAlphaDeg === null)) {
         onProgress?.({ iteration, maxIterations: SOLVER_SETTINGS.couplingMaxIterations, phase: 'verification' });
-        const verifiedAero = solveTargetLiftAerodynamics(design.geometry, flightCase, { eta, twistRad: nextTwist }, panelCount, signal);
+        const verifiedAero = fixedAlphaDeg === null
+          ? solveTargetLiftAerodynamics(design.geometry, flightCase, { eta, twistRad: nextTwist }, panelCount, signal)
+          : solveFixedAngleAerodynamics(design.geometry, flightCase, { eta, twistRad: nextTwist }, panelCount, fixedAlphaDeg, signal);
         const verifiedStructure = solveWingStructure(design, verifiedAero, signal);
         ensureWithinModelRange(design, verifiedStructure);
         const verifiedRaw = verifiedStructure.nodes.map((node) => node.elasticTwistRad);
         const verifiedLoads = verifiedAero.strips.filter((strip) => strip.yStartM >= -1e-12).map((strip) => strip.verticalForceN);
         const verifiedNext = relaxed(verifiedRaw, nextTwist);
         const verifiedDiagnostics = diagnostic(iteration, verifiedRaw, nextTwist, verifiedNext, verifiedLoads, loads, verifiedAero);
-        if (converged(verifiedDiagnostics)) return { status: 'converged', aero: verifiedAero, structure: verifiedStructure, diagnostics: verifiedDiagnostics };
+        if (converged(verifiedDiagnostics, fixedAlphaDeg === null)) return { status: 'converged', aero: verifiedAero, structure: verifiedStructure, diagnostics: verifiedDiagnostics };
       }
       twist = nextTwist;
       previousLoads = loads;
@@ -129,4 +139,26 @@ export function runAeroelasticCoupling(
   }
   if (!last) throw new CouplingError('NUMERICAL_FAILURE', 'Aeroelastic solve produced no iteration result.');
   return last;
+}
+
+export function runAeroelasticCoupling(
+  design: WingDesign,
+  flightCase: FlightCase,
+  fidelity: SolverFidelity,
+  signal?: AbortSignal,
+  onProgress?: (progress: CouplingProgress) => void,
+) {
+  return runCoupling(design, flightCase, fidelity, null, signal, onProgress);
+}
+
+export function runFixedAngleAeroelasticCoupling(
+  design: WingDesign,
+  flightCase: FlightCase,
+  fidelity: SolverFidelity,
+  alphaDeg: number,
+  signal?: AbortSignal,
+  onProgress?: (progress: CouplingProgress) => void,
+  initialTwistRad?: readonly number[],
+) {
+  return runCoupling(design, flightCase, fidelity, alphaDeg, signal, onProgress, initialTwistRad);
 }

@@ -1,6 +1,6 @@
 AEROFICIENCY — PRESERVED PRODUCTION DEPENDENCY LICENSE AND NOTICE TEXTS
 
-Lockfile SHA-256: da2f60115805ed5f75e25207de5168daf45318c0831db8473d0af755b0a5c83d
+Lockfile SHA-256: becfce67b8dcb1a729be1e645ca4769608a2a396e54d89d0875c59468dd116e0
 Generated deterministically from installed root license, licence, copying, and notice files.
 See npm-production-inventory.md for the complete locked production dependency list.
 

@@ -119,6 +119,7 @@ const SUCCESS_BUDGETS: Record<string, number> = {
   set_baseline_design: 1_500,
   update_wing_geometry: 1_500,
   update_wing_structure: 1_500,
+  configure_angle_sweep: 1_500,
   run_aeroelastic_analysis: 3_000,
   compare_designs: 2_500,
 };
@@ -168,7 +169,7 @@ describe('bounded Site Tool output envelopes', () => {
     }
   });
 
-  it('keeps all nine success and validation-error envelopes JSON-safe under frozen budgets, including maximum project cardinality', async () => {
+  it('keeps all ten success and validation-error envelopes JSON-safe under frozen budgets, including maximum project cardinality', async () => {
     const fixture = canonicalState();
     useProjectStore.setState({ project: fixture.state, presentation: createEmptyPresentationFocus(), analysisRun: { status: 'idle' } });
     const success: Record<string, unknown> = {};
@@ -207,6 +208,12 @@ describe('bounded Site Tool output envelopes', () => {
       idempotencyKey: createIdempotencyKey(),
       patch: { skinThicknessMm: 1.7, frontWebThicknessMm: 2.1, rearWebThicknessMm: 2.1, elasticAxisXOverC: 0.4 },
     });
+    success.configure_angle_sweep = await definition('configure_angle_sweep').execute({
+      expectedProjectRevision: useProjectStore.getState().project.projectRevision,
+      expectedFlightCaseRevision: useProjectStore.getState().project.flightCase.revision,
+      idempotencyKey: createIdempotencyKey(),
+      patch: { sweepStepAlphaDeg: 0.5 },
+    });
 
     const maximum = maximumBoundedState(useProjectStore.getState().project, fixture.candidate.analysisId);
     useProjectStore.setState({ project: maximum, presentation: createEmptyPresentationFocus() });
@@ -233,6 +240,7 @@ describe('bounded Site Tool output envelopes', () => {
       set_baseline_design: {},
       update_wing_geometry: {},
       update_wing_structure: {},
+      configure_angle_sweep: {},
       run_aeroelastic_analysis: {},
       compare_designs: {},
     };

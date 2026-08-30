@@ -86,6 +86,17 @@ const structurePatch = z.object({
 }).strict().refine((patch) => Object.keys(patch).length > 0, 'Patch must contain at least one field.');
 const updateGeometryInput = z.object({ designId, expectedDesignRevision: z.number().int().positive(), idempotencyKey, patch: geometryPatch }).strict();
 const updateStructureInput = z.object({ designId, expectedDesignRevision: z.number().int().positive(), idempotencyKey, patch: structurePatch }).strict();
+const angleSweepPatch = z.object({
+  sweepMinAlphaDeg: z.number().finite().min(-8).max(10).optional(),
+  sweepMaxAlphaDeg: z.number().finite().min(-6).max(12).optional(),
+  sweepStepAlphaDeg: z.union([z.literal(0.5), z.literal(1)]).optional(),
+}).strict().refine((patch) => Object.keys(patch).length > 0, 'Patch must contain at least one field.');
+const configureAngleSweepInput = z.object({
+  expectedProjectRevision: z.number().int().positive(),
+  expectedFlightCaseRevision: z.number().int().positive(),
+  idempotencyKey,
+  patch: angleSweepPatch,
+}).strict();
 const runInput = z.object({
   designId,
   expectedProjectRevision: z.number().int().positive(),
@@ -215,6 +226,14 @@ const geometryPatchSchema = {
     nacaCode: nacaCodeSchema,
     airfoilStations: { type: 'array', minItems: 2, maxItems: MAX_AIRFOIL_STATIONS, items: airfoilStationSchema },
     polarModel: polarModelSchema,
+  }),
+  minProperties: 1,
+};
+const angleSweepPatchSchema = {
+  ...objectSchema({
+    sweepMinAlphaDeg: { type: 'number', minimum: -8, maximum: 10 },
+    sweepMaxAlphaDeg: { type: 'number', minimum: -6, maximum: 12 },
+    sweepStepAlphaDeg: { type: 'number', enum: [0.5, 1] },
   }),
   minProperties: 1,
 };
@@ -427,6 +446,11 @@ function getAnalysisSummary(id: AnalysisId): DomainResult<unknown> {
       fidelity: analysis.fidelity,
       convergence: { iterations: analysis.convergence.iterations },
       metrics: publicSummaryMetrics(analysis.metrics),
+      ...(analysis.status === 'converged' && current ? { aoa: {
+        alpha: [analysis.angleSweep.minimumAlphaDeg, analysis.angleSweep.maximumAlphaDeg, analysis.angleSweep.stepAlphaDeg],
+        n: [analysis.angleSweep.points.filter((point) => point.status === 'converged').length, analysis.angleSweep.points.length],
+        trim: rounded(analysis.angleSweep.trimAlphaDeg, 4),
+      } } : {}),
       constraints: analysis.status === 'converged'
         ? analysis.constraints.map((constraint) => `${constraint.key}:${constraint.state}`)
         : ['all:unavailable'],
@@ -600,7 +624,7 @@ export const AEROFICIENCY_TOOLS: AeroficiencyToolDefinition[] = [
   },
   {
     name: 'get_analysis_summary',
-    description: 'Read bounded metrics, convergence, configured checks, critical stations, and complete compact model validity for one explicit immutable Aeroficiency analysis ID.',
+    description: 'Read bounded metrics, convergence, compact fixed-AoA sweep status, configured checks, critical stations, and model validity for one explicit immutable Aeroficiency analysis ID; aoa.alpha is [minimum, maximum, step] and aoa.n is [solved, total].',
     inputSchema: objectSchema({ analysisId: idSchema('ana') }, ['analysisId']), annotations: annotations(true),
     execute: (input, context) => parsed(analysisInput, input, ({ analysisId: id }) => getAnalysisSummary(id as AnalysisId), context?.signal),
   },
@@ -651,8 +675,14 @@ export const AEROFICIENCY_TOOLS: AeroficiencyToolDefinition[] = [
     }, context?.signal),
   },
   {
+    name: 'configure_angle_sweep',
+    description: 'Idempotently configure the shared precomputed fixed-angle aeroelastic sweep at explicit project and flight-case revisions; supported bounds are -8° to +12°, at least 2° wide, in 0.5° or 1° increments.',
+    inputSchema: objectSchema({ expectedProjectRevision: { type: 'integer', minimum: 1 }, expectedFlightCaseRevision: { type: 'integer', minimum: 1 }, idempotencyKey: uuidSchema, patch: angleSweepPatchSchema }, ['expectedProjectRevision', 'expectedFlightCaseRevision', 'idempotencyKey', 'patch']), annotations: annotations(false),
+    execute: (input, context) => parsed(configureAngleSweepInput, input, (value) => useProjectStore.getState().configureAngleSweep(value.patch, 'agent', value.idempotencyKey, value.expectedFlightCaseRevision, value.expectedProjectRevision), context?.signal),
+  },
+  {
     name: 'run_aeroelastic_analysis',
-    description: 'Run and visibly commit Aeroficiency low-order target-lift, torsion-coupled static analysis for one explicit current revision; this writes an immutable result and activity event.',
+    description: 'Run and visibly commit Aeroficiency low-order target-lift trim plus the configured fixed-AoA, torsion-coupled sweep for one explicit current revision; this writes one immutable result and activity event.',
     inputSchema: objectSchema({ designId: idSchema('des'), expectedProjectRevision: { type: 'integer', minimum: 1 }, expectedDesignRevision: { type: 'integer', minimum: 1 }, expectedFlightCaseRevision: { type: 'integer', minimum: 1 }, expectedConstraintsRevision: { type: 'integer', minimum: 1 }, idempotencyKey: uuidSchema, fidelity: { type: 'string', enum: ['fast', 'standard'] } }, ['designId', 'expectedProjectRevision', 'expectedDesignRevision', 'expectedFlightCaseRevision', 'expectedConstraintsRevision', 'idempotencyKey', 'fidelity']), annotations: annotations(false),
     execute: (input, context) => parsed(runInput, input, async (value, signal) => {
       const result = await useProjectStore.getState().runAnalysis({ ...value, designId: value.designId as DesignId }, 'agent', signal);
@@ -661,6 +691,7 @@ export const AEROFICIENCY_TOOLS: AeroficiencyToolDefinition[] = [
       const snapshotRetained = Boolean(currentProject.analyses[result.data.analysisId]);
       const snapshotCurrent = snapshotRetained && analysisIsCurrent(currentProject, result.data.analysisId);
       const owner = currentProject.designs[result.data.designId];
+      const snapshot = currentProject.analyses[result.data.analysisId];
       const currentReplacementAnalysisId = owner?.latestAnalysisId && analysisIsCurrent(currentProject, owner.latestAnalysisId)
         ? owner.latestAnalysisId
         : null;
@@ -672,6 +703,15 @@ export const AEROFICIENCY_TOOLS: AeroficiencyToolDefinition[] = [
         data: {
           ...data,
           metrics: publicMetrics(metrics),
+          angleSweep: snapshot ? {
+            minimumAlphaDeg: snapshot.angleSweep.minimumAlphaDeg,
+            maximumAlphaDeg: snapshot.angleSweep.maximumAlphaDeg,
+            stepAlphaDeg: snapshot.angleSweep.stepAlphaDeg,
+            pointCount: snapshot.angleSweep.points.length,
+            convergedPointCount: snapshot.angleSweep.points.filter((point) => point.status === 'converged').length,
+            trimAlphaDeg: snapshot.angleSweep.trimAlphaDeg,
+            bestSampledLiftToDragAlphaDeg: snapshot.angleSweep.bestLiftToDragAlphaDeg,
+          } : null,
           checkSummary,
           snapshotRetention: {
             retained: snapshotRetained,

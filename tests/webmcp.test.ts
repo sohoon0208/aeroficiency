@@ -14,14 +14,14 @@ describe('bounded Aeroficiency Site Tools surface', () => {
   beforeEach(() => useProjectStore.setState({ project: createDefaultProject(), analysisRun: { status: 'idle' }, presentation: createEmptyPresentationFocus(), mutationHighlight: null, commandNotice: null }));
   afterEach(() => vi.unstubAllGlobals());
 
-  it('registers exactly the intended nine distinctive tools', () => {
+  it('registers exactly the intended ten distinctive tools', () => {
     expect(AEROFICIENCY_TOOLS.map((tool) => tool.name)).toEqual([
       'get_design_state', 'get_analysis_summary', 'inspect_span_station', 'create_candidate_variant',
-      'set_baseline_design', 'update_wing_geometry', 'update_wing_structure', 'run_aeroelastic_analysis', 'compare_designs',
+      'set_baseline_design', 'update_wing_geometry', 'update_wing_structure', 'configure_angle_sweep', 'run_aeroelastic_analysis', 'compare_designs',
     ]);
     expect(AEROFICIENCY_TOOLS.every((tool) => tool.inputSchema.additionalProperties === false)).toBe(true);
-    expect(new Set(AEROFICIENCY_TOOLS.map((tool) => tool.description)).size).toBe(9);
-    expect(AEROFICIENCY_TOOLS.map((tool) => Object.keys(tool.annotations).sort())).toEqual(Array.from({ length: 9 }, () => ['readOnlyHint', 'untrustedContentHint']));
+    expect(new Set(AEROFICIENCY_TOOLS.map((tool) => tool.description)).size).toBe(10);
+    expect(AEROFICIENCY_TOOLS.map((tool) => Object.keys(tool.annotations).sort())).toEqual(Array.from({ length: 10 }, () => ['readOnlyHint', 'untrustedContentHint']));
     expect(AEROFICIENCY_TOOLS.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name)).toEqual(['get_design_state', 'get_analysis_summary']);
   });
 
@@ -29,9 +29,11 @@ describe('bounded Aeroficiency Site Tools surface', () => {
     const createTool = AEROFICIENCY_TOOLS.find((tool) => tool.name === 'create_candidate_variant')!;
     const geometryTool = AEROFICIENCY_TOOLS.find((tool) => tool.name === 'update_wing_geometry')!;
     const structureTool = AEROFICIENCY_TOOLS.find((tool) => tool.name === 'update_wing_structure')!;
+    const sweepTool = AEROFICIENCY_TOOLS.find((tool) => tool.name === 'configure_angle_sweep')!;
     const createProperties = createTool.inputSchema.properties as Record<string, Record<string, unknown>>;
     const geometryProperties = geometryTool.inputSchema.properties as Record<string, Record<string, unknown>>;
     const structureProperties = structureTool.inputSchema.properties as Record<string, Record<string, unknown>>;
+    const sweepProperties = sweepTool.inputSchema.properties as Record<string, Record<string, unknown>>;
     expect(createProperties.candidateLabel.pattern).toBe('^(?=.*\\S)[^\\u0000-\\u001F\\u007F]{1,48}$');
     expect(createTool.inputSchema.required).toContain('expectedProjectRevision');
     expect(AEROFICIENCY_TOOLS.find((tool) => tool.name === 'run_aeroelastic_analysis')!.inputSchema.required).toContain('expectedProjectRevision');
@@ -39,6 +41,7 @@ describe('bounded Aeroficiency Site Tools surface', () => {
     expect(designStateProperties.designId).toMatchObject({ minLength: 30, maxLength: 30 });
     expect(geometryProperties.patch.minProperties).toBe(1);
     expect(structureProperties.patch.minProperties).toBe(1);
+    expect(sweepProperties.patch.minProperties).toBe(1);
 
     const state = useProjectStore.getState().project;
     const baseline = state.designs[state.activeDesignId];

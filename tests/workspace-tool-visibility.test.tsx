@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/charts/SpanwiseCharts', () => ({ SpanwiseCharts: () => <div data-testid="charts" /> }));
 vi.mock('@/components/viewport/WingViewport', () => ({ WingViewport: () => <div data-testid="viewport" /> }));
-vi.mock('@/webmcp/registerSiteTools', () => ({ AEROFICIENCY_TOOL_COUNT: 9, registerAeroficiencySiteTools: vi.fn(() => undefined) }));
+vi.mock('@/webmcp/registerSiteTools', () => ({ AEROFICIENCY_TOOL_COUNT: 10, registerAeroficiencySiteTools: vi.fn(() => undefined) }));
 
 import { AeroficiencyWorkspace } from '@/components/workspace/AeroficiencyWorkspace';
 import { createDefaultProject } from '@/lib/domain/defaults';

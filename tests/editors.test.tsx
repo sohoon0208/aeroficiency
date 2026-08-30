@@ -15,7 +15,7 @@ afterEach(cleanup);
 describe('case and configured-check editor', () => {
   it('renders all five configured checks, including required static convergence', () => {
     const project = createDefaultProject();
-    render(<CaseEditor flightCase={project.flightCase} constraints={project.constraints} />);
+    render(<CaseEditor flightCase={project.flightCase} constraints={project.constraints} editable onUpdate={() => ({ ok: true, replayed: false, data: {} })} />);
     const heading = screen.getByRole('heading', { name: 'Configured trade-study checks' });
     const section = heading.closest('section');
     if (!section) throw new Error('Missing configured-check section.');

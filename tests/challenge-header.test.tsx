@@ -18,7 +18,7 @@ function renderHeader() {
     activeDesignLabel="Baseline"
     activeDesignRevision={1}
     candidateCount={0}
-    toolCount={9}
+    toolCount={10}
     siteTools="ready"
     running={false}
     onRun={vi.fn()}
@@ -28,7 +28,7 @@ function renderHeader() {
 }
 
 describe('challenge first-screen controls', () => {
-  it('shows the reference case, objective, validity, editable Baseline, candidate requirement, and nine-tool readiness', () => {
+  it('shows the reference case, objective, validity, editable Baseline, candidate requirement, and ten-tool readiness', () => {
     renderHeader();
     const logo = screen.getByRole('img', { name: 'Aeroficiency' });
     expect(logo).toBeVisible();
@@ -39,7 +39,7 @@ describe('challenge first-screen controls', () => {
     expect(screen.getByText('BASELINE EDITABLE')).toBeVisible();
     expect(screen.getByText('1 CANDIDATE REQUIRED')).toBeVisible();
     expect(screen.getByText('PRELIMINARY · key omissions disclosed')).toBeVisible();
-    expect(screen.getByText('9 Site Tools ready')).toBeVisible();
+    expect(screen.getByText('10 Site Tools ready')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Reset reference case' })).toBeEnabled();
   });
 
@@ -76,7 +76,7 @@ describe('challenge first-screen controls', () => {
       activeDesignLabel: 'Baseline',
       activeDesignRevision: 1,
       candidateCount: 0,
-      toolCount: 9,
+      toolCount: 10,
       siteTools: 'ready' as const,
       running: false,
       onRun: vi.fn(),
@@ -98,7 +98,7 @@ describe('challenge first-screen controls', () => {
       activeDesignLabel="Candidate A"
       activeDesignRevision={2}
       candidateCount={1}
-      toolCount={9}
+      toolCount={10}
       siteTools="ready"
       running
       onRun={vi.fn()}

@@ -5,9 +5,11 @@ import { SpanwiseCharts } from '@/components/charts/SpanwiseCharts';
 import { AirfoilEditor, CaseEditor, GeometryEditor, StructureEditor } from '@/components/design/Editors';
 import { SectionFlowLab } from '@/components/flow/SectionFlowLab';
 import { PerformanceLab } from '@/components/flow/PerformanceLab';
+import { AngleSweepScrubber } from '@/components/flow/AngleSweepExplorer';
 import { ChallengeHeader } from '@/components/workspace/ChallengeHeader';
 import { WingViewport, type ViewMode } from '@/components/viewport/WingViewport';
 import { analysisIsCurrent } from '@/lib/domain/commands';
+import { analysisAtSweepPoint, sweepPointAtAngle } from '@/lib/domain/angleSweep';
 import { createIdempotencyKey } from '@/lib/domain/ids';
 import { MODEL_WARNINGS } from '@/lib/domain/limits';
 import { interpolateStationValue } from '@/lib/domain/stations';
@@ -155,6 +157,7 @@ export function AeroficiencyWorkspace() {
   const [resultTab, setResultTab] = useState<ResultTab>('overview');
   const [resetOpen, setResetOpen] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
+  const [sweepSelection, setSweepSelection] = useState<{ analysisId: string; alphaDeg: number } | null>(null);
   const resetDialogRef = useRef<HTMLElement>(null);
   const editorFocusRef = useRef<{ tab: EditorTab; ariaLabel: string } | null>(null);
 
@@ -167,8 +170,13 @@ export function AeroficiencyWorkspace() {
   const selectedEta = presentation.eta ?? project.selectedEta;
   const current = Boolean(analysis && analysisIsCurrent(project, analysis.analysisId));
   const immutableState = immutableResultState(analysis, current);
-  const visualAnalysis = analysis?.status === 'converged' && current ? analysis : null;
+  const requestedSweepAlpha = sweepSelection && sweepSelection.analysisId === analysis?.analysisId ? sweepSelection.alphaDeg : null;
+  const selectedSweepPoint = useMemo(() => analysis?.status === 'converged' && current ? sweepPointAtAngle(analysis, requestedSweepAlpha) : null, [analysis, current, requestedSweepAlpha]);
+  const visualAnalysis = analysis?.status === 'converged' && current
+    ? selectedSweepPoint ? analysisAtSweepPoint(analysis, selectedSweepPoint) : analysis
+    : null;
   const metricAnalysis = analysis;
+  const overviewAnalysis = visualAnalysis ?? metricAnalysis;
   const runningGlobally = analysisRun.status === 'running';
   const runningForActive = runningGlobally && analysisRun.designId === activeDesign.designId && analysisRun.designRevision === activeDesign.revision;
   const editable = true;
@@ -367,12 +375,15 @@ export function AeroficiencyWorkspace() {
   const setActiveBaseline = () => store().setBaseline(activeDesign.designId, 'human');
   const updateGeometry = (patch: Partial<WingGeometry>) => store().updateGeometry(activeDesign.designId, patch, 'human');
   const updateStructure = (patch: Partial<WingStructure>) => store().updateStructure(activeDesign.designId, patch, 'human');
+  const updateAngleSweep = (patch: Parameters<ReturnType<typeof useProjectStore.getState>['configureAngleSweep']>[0]) => store().configureAngleSweep(patch, 'human');
 
   const constraints = presentedConstraints(analysis, current);
   const checkSummary = configuredCheckSummary(activeDesign.kind, analysis, current);
   const progressText = runningForActive
     ? analysisRun.progress
-      ? `${analysisRun.progress.phase} · iteration ${analysisRun.progress.iteration} of ${analysisRun.progress.maxIterations}`
+      ? analysisRun.progress.scope === 'sweep'
+        ? `AoA ${analysisRun.progress.alphaDeg?.toFixed(1)}° · point ${analysisRun.progress.sweepIndex} of ${analysisRun.progress.sweepCount} · ${analysisRun.progress.phase}`
+        : `Target-lift trim · ${analysisRun.progress.phase} · iteration ${analysisRun.progress.iteration} of ${analysisRun.progress.maxIterations}`
       : 'Starting local analysis worker…'
     : immutableState.key === 'awaiting'
       ? ''
@@ -440,14 +451,15 @@ export function AeroficiencyWorkspace() {
             {editorTab === 'structure' && <StructureEditor key={`${activeDesign.designId}-${activeDesign.revision}`} design={activeDesign} editable={editable} changedFields={activeMutationHighlight?.paths ?? []} changedActor={activeMutationHighlight?.actor ?? null} onUpdate={updateStructure} />}
           </div>
           <div id="panel-case" role="tabpanel" aria-labelledby="tab-case" className="editor-panel" hidden={editorTab !== 'case'}>
-            {editorTab === 'case' && <CaseEditor flightCase={project.flightCase} constraints={project.constraints} />}
+            {editorTab === 'case' && <CaseEditor key={project.flightCase.revision} flightCase={project.flightCase} constraints={project.constraints} editable={!runningGlobally} onUpdate={updateAngleSweep} />}
           </div>
         </aside>
 
         <section id="model-workspace-panel" className={`center-stage mobile-${mobileView}`} aria-label="Engineering model and plots">
           <div className="stage-heading"><div><span className="eyebrow">ENGINEERING VIEWPORT</span><h2>{activeDesign.label} · {mode === 'section' ? 'analysis-linked section diagnostic' : mode === 'performance' ? 'Reynolds and drag evidence' : 'linked full-wing evidence'}</h2></div><div className="mode-controls"><div className="view-tabs" role="tablist" aria-label="Visualization mode">{VISUALIZATION_TABS.map(([key, label]) => <button key={key} id={`view-tab-${key}`} type="button" role="tab" tabIndex={mode === key ? 0 : -1} aria-selected={mode === key} aria-controls="model-view-panel" className={mode === key ? 'active' : ''} onClick={() => setMode(key)} onKeyDown={(event) => moveTabFocus(event, VISUALIZATION_TABS.map(([tab]) => tab), mode, setMode, 'view-tab')}>{label}</button>)}</div><button type="button" className={`deform-toggle ${effectiveDeformed ? 'active' : ''}`} aria-pressed={effectiveDeformed} disabled={!visualAnalysis || mode === 'section' || mode === 'performance'} onClick={() => setDeformed((value) => !value)}>{mode === 'section' || mode === 'performance' ? 'Diagnostic view' : effectiveDeformed ? 'Deformed ×6' : 'Undeformed'}</button></div></div>
-          <div id="model-view-panel" role="tabpanel" aria-labelledby={`view-tab-${mode}`} className={`viewport-card ${mode === 'section' || mode === 'performance' ? 'section-mode' : ''} ${presentation.focusedPanel === 'station' ? 'agent-focused' : ''}`}>
+          <div id="model-view-panel" role="tabpanel" aria-labelledby={`view-tab-${mode}`} className={`viewport-card ${mode === 'section' || mode === 'performance' ? 'section-mode' : ''} ${analysis && current && selectedSweepPoint ? 'sweep-active' : ''} ${presentation.focusedPanel === 'station' ? 'agent-focused' : ''}`}>
             <div className={`solver-strip ${runningForActive ? 'running' : immutableState.key}`}><span><i />{runningForActive ? 'SOLVER RUNNING' : immutableState.label}</span>{progressText && <span>{progressText}</span>}{metricAnalysis && <><span>Analysis {metricAnalysis.analysisId}</span><span>r{metricAnalysis.designRevision} · {metricAnalysis.fidelity}</span></>}</div>
+            {analysis && current && selectedSweepPoint && <AngleSweepScrubber analysis={analysis} point={selectedSweepPoint} onSelect={(alphaDeg) => setSweepSelection({ analysisId: analysis.analysisId, alphaDeg })} />}
             {mode === 'section'
               ? <SectionFlowLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} />
               : mode === 'performance'
@@ -462,16 +474,16 @@ export function AeroficiencyWorkspace() {
           <div className="panel-title"><div><span className="eyebrow">IMMUTABLE ANALYSIS RESULT</span><h2>{metricAnalysis ? `${activeDesign.label} · ${metricAnalysis.analysisId}` : `${activeDesign.label} · awaiting analysis`}</h2></div><span className={`result-pill ${immutableState.key}`}>{immutableState.label}</span><button className="tablet-results-close" type="button" onClick={() => { setMobileView('model'); window.requestAnimationFrame(() => document.getElementById('results-nav-button')?.focus()); }}>Close results</button></div>
           <div className="results-tabs" role="tablist" aria-label="Result sections">{([['overview', 'Overview'], ['checks', 'Checks'], ['compare', 'Compare'], ['log', 'Log']] as const).map(([key, label]) => <button key={key} id={`result-tab-${key}`} type="button" role="tab" tabIndex={resultTab === key ? 0 : -1} aria-selected={resultTab === key} aria-controls={`result-panel-${key}`} className={resultTab === key ? 'active' : ''} onClick={() => setResultTab(key)} onKeyDown={(event) => moveTabFocus(event, ['overview', 'checks', 'compare', 'log'] as const, resultTab, setResultTab, 'result-tab')}>{label}</button>)}</div>
           <div id="result-panel-overview" role="tabpanel" aria-labelledby="result-tab-overview" className="result-tab-panel" hidden={resultTab !== 'overview'}><div className="metrics-grid">
-            <MetricCell label="Modeled wing-box wall mass" value={fmt(metricAnalysis?.metrics.structuralMassKg, 1)} unit="kg" detail={metricAnalysis ? `Analysis r${metricAnalysis.designRevision}` : 'Awaiting analysis'} />
-            <MetricCell label="Wake-induced drag estimate" value={fmt(metricAnalysis?.metrics.inducedDragN, 1)} unit="N" detail="Matched target lift · not total drag" />
-            <MetricCell label="Profile drag estimate" value={fmt(metricAnalysis?.metrics.profileDragEstimateN, 1)} unit="N" detail={metricAnalysis?.polarDiagnostics.model === 'user_section_polars' ? 'User SectionPolar tables' : 'Analytic attached-flow estimate'} />
-            <MetricCell label="Combined wing drag estimate" value={fmt(metricAnalysis?.metrics.combinedWingDragEstimateN, 1)} unit="N" detail="Induced + profile · wing only" />
-            <MetricCell label="Estimated wing L/D" value={fmt(metricAnalysis?.metrics.estimatedWingLiftToDrag, 1)} unit="" detail="No fuselage/interference drag" />
-            <MetricCell label="Tip deflection" value={fmt(metricAnalysis?.metrics.tipDeflectionM, 3)} unit="m" detail={`Limit ${project.constraints.maxTipDeflectionM.toFixed(2)} m`} />
-            <MetricCell label="Tip elastic twist" value={fmt(metricAnalysis?.metrics.tipElasticTwistDeg, 2)} unit="deg" detail="Torsion-coupled" />
-            <MetricCell label="Modeled yield ratio" value={fmt(metricAnalysis?.metrics.minYieldMargin, 2)} unit="×" detail="σy / max(σVM) · not a full FoS" />
-            <MetricCell label="Trim angle" value={fmt(metricAnalysis?.metrics.trimmedAlphaDeg, 2)} unit="deg" detail={`${fmt(metricAnalysis?.metrics.liftN ? metricAnalysis.metrics.liftN / 1000 : null, 1)} kN lift`} />
-          </div>{metricAnalysis && <div className="overview-validity"><span>Polar source</span><strong>{metricAnalysis.polarDiagnostics.model === 'user_section_polars' ? 'User SectionPolar tables' : 'Analytic attached-flow estimate'}</strong><small>Re {metricAnalysis.polarDiagnostics.reynoldsRange[0].toExponential(2)} → {metricAnalysis.polarDiagnostics.reynoldsRange[1].toExponential(2)} · open Efficiency for distributions and range states.</small></div>}</div>
+            <MetricCell label="Modeled wing-box wall mass" value={fmt(overviewAnalysis?.metrics.structuralMassKg, 1)} unit="kg" detail={metricAnalysis ? `Analysis r${metricAnalysis.designRevision}` : 'Awaiting analysis'} />
+            <MetricCell label="Wake-induced drag estimate" value={fmt(overviewAnalysis?.metrics.inducedDragN, 1)} unit="N" detail={selectedSweepPoint && current ? `Fixed α ${selectedSweepPoint.alphaDeg.toFixed(1)}° · not total drag` : 'Matched target lift · not total drag'} />
+            <MetricCell label="Profile drag estimate" value={fmt(overviewAnalysis?.metrics.profileDragEstimateN, 1)} unit="N" detail={overviewAnalysis?.polarDiagnostics.model === 'user_section_polars' ? 'User SectionPolar tables' : 'Analytic attached-flow estimate'} />
+            <MetricCell label="Combined wing drag estimate" value={fmt(overviewAnalysis?.metrics.combinedWingDragEstimateN, 1)} unit="N" detail="Induced + profile · wing only" />
+            <MetricCell label="Estimated wing L/D" value={fmt(overviewAnalysis?.metrics.estimatedWingLiftToDrag, 1)} unit="" detail="No fuselage/interference drag" />
+            <MetricCell label="Tip deflection" value={fmt(overviewAnalysis?.metrics.tipDeflectionM, 3)} unit="m" detail={`Limit ${project.constraints.maxTipDeflectionM.toFixed(2)} m`} />
+            <MetricCell label="Tip elastic twist" value={fmt(overviewAnalysis?.metrics.tipElasticTwistDeg, 2)} unit="deg" detail="Fixed-AoA torsion-coupled" />
+            <MetricCell label="Modeled yield ratio" value={fmt(overviewAnalysis?.metrics.minYieldMargin, 2)} unit="×" detail="σy / max(σVM) · not a full FoS" />
+            <MetricCell label={selectedSweepPoint && current ? 'Selected AoA' : 'Trim angle'} value={fmt(overviewAnalysis?.metrics.trimmedAlphaDeg, 2)} unit="deg" detail={selectedSweepPoint && metricAnalysis ? `Target-lift trim ${metricAnalysis.metrics.trimmedAlphaDeg.toFixed(2)}°` : `${fmt(metricAnalysis?.metrics.liftN ? metricAnalysis.metrics.liftN / 1000 : null, 1)} kN lift`} />
+          </div>{overviewAnalysis && <div className="overview-validity"><span>Polar source</span><strong>{overviewAnalysis.polarDiagnostics.model === 'user_section_polars' ? 'User SectionPolar tables' : 'Analytic attached-flow estimate'}</strong><small>Re {overviewAnalysis.polarDiagnostics.reynoldsRange[0].toExponential(2)} → {overviewAnalysis.polarDiagnostics.reynoldsRange[1].toExponential(2)} · open Efficiency for distributions and range states.</small></div>}</div>
 
           <div id="result-panel-checks" role="tabpanel" aria-labelledby="result-tab-checks" className="result-tab-panel" hidden={resultTab !== 'checks'}><section className="result-section"><div className="group-heading"><h3>Configured trade-study checks</h3><span className={checkSummary.tone === 'current' ? 'success-text' : ''}>{checkSummary.label}</span></div><div className="constraint-list">{constraints.map((constraint) => <div key={constraint.key}><span className={`constraint-icon ${constraint.state}`} aria-hidden="true">{constraint.state === 'pass' ? '✓' : constraint.state === 'fail' ? '!' : constraint.state === 'stale' ? '↻' : '—'}</span><p><strong>{constraint.label}</strong><small>{constraint.detail}</small></p><b className={constraint.state}><span className="sr-only">Check state: {constraint.state}. </span>{constraint.actual === null ? constraint.state.toUpperCase() : `${fmt(constraint.actual, 2)} ${constraint.unit}`}</b></div>)}</div></section>
 

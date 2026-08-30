@@ -25,6 +25,9 @@ describe('target-lift horseshoe-vortex solver', () => {
     altitudeM: 0,
     airDensityKgM3: 1.225,
     dynamicViscosityPaS: 1.7894e-5,
+    sweepMinAlphaDeg: -4,
+    sweepMaxAlphaDeg: 10,
+    sweepStepAlphaDeg: 0.5,
   };
   const twistField = { eta: [0, 1], twistRad: [0, 0] } as const;
 

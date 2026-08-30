@@ -5,8 +5,8 @@ Record from the frozen release in one clean browser session. Use an English voic
 ## Before recording
 
 1. Reset Aeroficiency and verify `Baseline r1`, no analysis, and the preliminary-model disclaimer.
-2. Verify the frozen release reports solver `aeroficiency-0.5.0` and reconfirm the documented baseline/candidate fixture.
-3. Open the supported WebMCP agent environment and confirm all nine tool names.
+2. Verify the frozen release reports solver `aeroficiency-0.6.0` and reconfirm the documented baseline/candidate fixture.
+3. Open the supported WebMCP agent environment and confirm all ten tool names.
 4. Set browser zoom and recording resolution so 11–12 px operational text is readable at normal YouTube playback.
 5. Close unrelated applications and disable notifications.
 6. Keep the final candidate recipe available only as rehearsal guidance, not pasted into a tool response.
@@ -25,9 +25,9 @@ Canonical task shown on screen:
 
 ### 0:15–0:34 — Shared model and WebMCP
 
-**Screen:** Editable Baseline state, candidate-required comparison notice, Site Tools badge, constraints, and normal Run button; briefly reveal the nine registered tools.
+**Screen:** Editable Baseline state, candidate-required comparison notice, Site Tools badge, constraints, and normal Run button; briefly reveal the ten registered tools.
 
-**Voice:** “Aeroficiency gives the human a complete manual workspace and exposes nine structured Site Tools over that same live model. Every tool uses explicit revisions, bounded SI inputs, and the same domain commands as the UI.”
+**Voice:** “Aeroficiency gives the human a complete manual workspace and exposes ten structured Site Tools over that same live model. Every tool uses explicit revisions, bounded SI inputs, and the same domain commands as the UI.”
 
 ### 0:34–0:52 — Baseline
 
@@ -55,9 +55,9 @@ Canonical task shown on screen:
 
 ### 2:25–2:40 — Transparent model
 
-**Screen:** Open Airfoils to show root/tip stations, then Model Scope. Briefly cycle Geometry, Aero loads, 2D Section, Efficiency, and Structure; return to warnings and activity.
+**Screen:** Open Airfoils to show root/tip stations, then Model Scope. Briefly drag the precomputed AoA scrubber and cycle Geometry, Aero loads, 2D Section, Efficiency, and Structure; return to warnings and activity.
 
-**Voice:** “User-positioned sections shape the loft, wing box, and local loading. The 3D views stay tied to the committed geometry and analysis, while Efficiency separates wake, polar-backed profile, and combined wing drag. The 2D lab stays explicitly inviscid. Model Scope keeps every limit visible.”
+**Voice:** “User-positioned sections shape the loft, wing box, and local loading. Every sampled angle reruns the coupled model, and one scrubber links the committed 3D, efficiency, and 2D evidence. The 2D lab stays explicitly inviscid. Model Scope keeps every limit visible.”
 
 ### 2:40–2:49 — Close
 
@@ -70,7 +70,7 @@ Canonical task shown on screen:
 - Final duration between 2:35 and 2:50 and strictly below 3:00.
 - Public YouTube visibility, working audio, English captions, and 1080p or better.
 - Tool calls and resulting page changes are real and visible.
-- The recorded solver version is `aeroficiency-0.5.0` and the fixture values were reconfirmed on that frozen release.
+- The recorded solver version is `aeroficiency-0.6.0` and the fixture values were reconfirmed on that frozen release.
 - No cut implies a failed or stale result is current.
 - Baseline remains unchanged.
 - The compared candidate ID is the final corrected analysis, never the first failed proposal.

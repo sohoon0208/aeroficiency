@@ -95,22 +95,22 @@ export function SectionFlowLab({
   selectedEta: number;
   onSelectEta: (eta: number) => void;
 }) {
-  const [panelCount, setPanelCount] = useState(80);
+  const [panelCount, setPanelCount] = useState(120);
   const condition = useMemo(() => analysis ? deriveSectionCondition(design, analysis, flightCase, selectedEta) : null, [analysis, design, flightCase, selectedEta]);
   const section = useMemo(() => localAirfoilSection(design.geometry, selectedEta, Math.max(40, panelCount / 2)), [design.geometry, panelCount, selectedEta]);
   const solution = useMemo(() => condition ? solveAirfoilSectionPotentialFlow(section, condition.localIncidenceDeg, flightCase.velocityMps, panelCount) : null, [condition, flightCase.velocityMps, panelCount, section]);
   const polar = useMemo(() => condition ? evaluateSectionPolar(design.geometry, condition.eta, condition.reynoldsNumber, condition.localIncidenceDeg) : null, [condition, design.geometry]);
-  if (!condition || !solution) return <div className="section-empty"><span>≈</span><p><strong>A current converged wing analysis is required.</strong><br />Run the main solver before opening the Section Flow Lab. Historical or stale results are never substituted.</p></div>;
+  if (!analysis || !condition || !solution) return <div className="section-empty"><span>≈</span><p><strong>A current converged wing analysis is required.</strong><br />Run the main solver before opening the Section Flow Lab. Historical or stale results are never substituted.</p></div>;
   return (
     <section className="section-flow-lab" aria-label="Two-dimensional section flow laboratory">
       <header className="section-lab-header">
-        <div><span className="eyebrow">V4 · LOCAL SECTION FLOW</span><h3>{section.label} · η {condition.eta.toFixed(3)} · analysis {condition.analysisId}</h3><p>Uses the interpolated local contour; this diagnostic does not alter the main wing analysis.</p></div>
+        <div><span className="eyebrow">AOA-LINKED · LOCAL SECTION FLOW</span><h3>{section.label} · η {condition.eta.toFixed(3)} · wing α {condition.wingAngleOfAttackDeg.toFixed(1)}°</h3><p>Immutable analysis {analysis.analysisId} · selected precomputed sweep point · exact interpolated local contour.</p></div>
         <label>Panel resolution<select aria-label="Section panel resolution" value={panelCount} onChange={(event) => setPanelCount(Number(event.target.value))}><option value="40">Low · 40</option><option value="80">Standard · 80</option><option value="120">High · 120</option><option value="160">Reference · 160</option></select></label>
       </header>
       <label className="station-scrubber section-station"><span>Linked 3D station</span><input type="range" min="0" max="1" step="0.001" value={selectedEta} onChange={(event) => onSelectEta(Number(event.target.value))} aria-valuetext={`eta ${selectedEta.toFixed(3)}`} /><strong>η {selectedEta.toFixed(3)}</strong></label>
       <div className="section-facts-row">
         <span><b>{format(condition.localIncidenceDeg, 2)}°</b>local incidence</span>
-        <span><b>{format(condition.inducedAngleDeg, 2)}°</b>positive downwash</span>
+        <span><b>{format(condition.inducedAngleDeg, 2)}°</b>induced-flow angle · downwash +</span>
         <span><b>{format(condition.chordM, 2)} m</b>local chord</span>
         <span><b>{condition.reynoldsNumber.toExponential(2)}</b>Re · coupled polar input</span>
         <span><b>{format(solution.liftCoefficient, 3)}</b>inviscid diagnostic C<sub>l</sub></span>
@@ -119,7 +119,7 @@ export function SectionFlowLab({
       </div>
       <div className="section-visual-grid"><SectionFlowField solution={solution} sectionLabel={section.label} /><CpPlot solution={solution} sectionLabel={section.label} /></div>
       <div className="section-validation-strip"><span>Kutta residual <b>{Math.abs(solution.kuttaResidualMps).toExponential(2)} m/s</b></span><span>Panel source-flux residual <b>{Math.abs(solution.sourceFluxResidualM2ps).toExponential(2)} m²/s</b></span><span>Numerical inviscid C<sub>d</sub> residual <b>{solution.dragCoefficientNumerical.toExponential(2)}</b></span></div>
-      <p className="scientific-warning"><strong>Two-dimensional inviscid attached potential-flow diagnostic.</strong> Its Cp and streamline field do not supply viscous drag to the wing solver. V5 profile drag comes only from the disclosed SectionPolar source. Local incidence = trim + geometric twist + elastic twist − positive downwash angle.</p>
+      <p className="scientific-warning"><strong>Two-dimensional inviscid attached potential-flow diagnostic.</strong> This diagnostic does not alter the main wing analysis. Its Cp and streamline field do not supply viscous drag to the wing solver. Profile drag comes only from the disclosed SectionPolar source. Local incidence = selected wing AoA + geometric twist + elastic twist − signed induced-flow angle; positive induced angle means downwash.</p>
       <details className="section-data-table"><summary>Accessible Cp table</summary><div><table><caption>Surface pressure coefficients for analysis {condition.analysisId}</caption><thead><tr><th scope="col">Surface</th><th scope="col">x/c</th><th scope="col">z/c</th><th scope="col">Cp</th><th scope="col">Vt/V∞</th></tr></thead><tbody>{solution.surface.map((point, index) => <tr key={`${point.surface}-${index}`}><th scope="row">{point.surface}</th><td>{point.xOverC.toFixed(4)}</td><td>{point.zOverC.toFixed(4)}</td><td>{point.cp.toFixed(5)}</td><td>{point.tangentialVelocityRatio.toFixed(5)}</td></tr>)}</tbody></table></div></details>
     </section>
   );

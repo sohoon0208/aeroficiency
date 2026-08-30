@@ -156,11 +156,12 @@ function buildLattice(geometry: WingGeometry, twistField: TwistField, panelCount
   }
 }
 
-export function solveTargetLiftAerodynamics(
+function solveAerodynamics(
   geometry: WingGeometry,
   flightCase: FlightCase,
   twistField: TwistField,
   panelCount: number,
+  fixedAlphaDeg: number | null,
   signal?: AbortSignal,
 ): AeroResult {
   validateInputs(geometry, flightCase, panelCount);
@@ -287,22 +288,28 @@ export function solveTargetLiftAerodynamics(
 
   const alphaLow = SOLVER_SETTINGS.alphaBracketDeg[0] * Math.PI / 180;
   const alphaHigh = SOLVER_SETTINGS.alphaBracketDeg[1] * Math.PI / 180;
-  let low = solveAtAlpha(alphaLow);
-  let high = solveAtAlpha(alphaHigh);
-  if (!(high.liftN > low.liftN)) throw new AeroError('TARGET_LIFT_UNBRACKETED', 'Lift is not monotonic over the supported trim bracket.');
-  if ((low.liftN - flightCase.targetLiftN) * (high.liftN - flightCase.targetLiftN) > 0) throw new AeroError('TARGET_LIFT_UNBRACKETED', `Target lift ${flightCase.targetLiftN.toFixed(0)} N is outside the supported angle-of-attack bracket.`);
-  let current = Math.abs(low.liftN - flightCase.targetLiftN) < Math.abs(high.liftN - flightCase.targetLiftN) ? low : high;
+  if (fixedAlphaDeg !== null && (!Number.isFinite(fixedAlphaDeg) || fixedAlphaDeg < SOLVER_SETTINGS.alphaBracketDeg[0] || fixedAlphaDeg > SOLVER_SETTINGS.alphaBracketDeg[1])) {
+    throw new AeroError('INVALID_INPUT', `Fixed angle of attack must remain within ${SOLVER_SETTINGS.alphaBracketDeg[0]}–${SOLVER_SETTINGS.alphaBracketDeg[1]} degrees.`);
+  }
+  let current = fixedAlphaDeg === null ? solveAtAlpha(alphaLow) : solveAtAlpha(fixedAlphaDeg * Math.PI / 180);
   let trimIterations = 0;
-  for (; trimIterations < SOLVER_SETTINGS.trimMaxIterations; trimIterations += 1) {
-    checkAbort(signal);
-    const mid = solveAtAlpha((low.alphaRad + high.alphaRad) / 2);
-    current = mid;
-    const relativeError = Math.abs(mid.liftN - flightCase.targetLiftN) / flightCase.targetLiftN;
-    if (relativeError <= SOLVER_SETTINGS.trimRelativeLiftTolerance || Math.abs(high.alphaRad - low.alphaRad) <= SOLVER_SETTINGS.trimAlphaToleranceRad) break;
-    if (mid.liftN < flightCase.targetLiftN) low = mid; else high = mid;
+  if (fixedAlphaDeg === null) {
+    let low = current;
+    let high = solveAtAlpha(alphaHigh);
+    if (!(high.liftN > low.liftN)) throw new AeroError('TARGET_LIFT_UNBRACKETED', 'Lift is not monotonic over the supported trim bracket.');
+    if ((low.liftN - flightCase.targetLiftN) * (high.liftN - flightCase.targetLiftN) > 0) throw new AeroError('TARGET_LIFT_UNBRACKETED', `Target lift ${flightCase.targetLiftN.toFixed(0)} N is outside the supported angle-of-attack bracket.`);
+    current = Math.abs(low.liftN - flightCase.targetLiftN) < Math.abs(high.liftN - flightCase.targetLiftN) ? low : high;
+    for (; trimIterations < SOLVER_SETTINGS.trimMaxIterations; trimIterations += 1) {
+      checkAbort(signal);
+      const mid = solveAtAlpha((low.alphaRad + high.alphaRad) / 2);
+      current = mid;
+      const relativeError = Math.abs(mid.liftN - flightCase.targetLiftN) / flightCase.targetLiftN;
+      if (relativeError <= SOLVER_SETTINGS.trimRelativeLiftTolerance || Math.abs(high.alphaRad - low.alphaRad) <= SOLVER_SETTINGS.trimAlphaToleranceRad) break;
+      if (mid.liftN < flightCase.targetLiftN) low = mid; else high = mid;
+    }
   }
   const targetLiftError = (current.liftN - flightCase.targetLiftN) / flightCase.targetLiftN;
-  if (Math.abs(targetLiftError) > 1e-5) throw new AeroError('TRIM_DID_NOT_CONVERGE', `Target-lift trim stopped with ${(100 * targetLiftError).toExponential(2)}% relative error.`);
+  if (fixedAlphaDeg === null && Math.abs(targetLiftError) > 1e-5) throw new AeroError('TRIM_DID_NOT_CONVERGE', `Target-lift trim stopped with ${(100 * targetLiftError).toExponential(2)}% relative error.`);
 
   const dragDirection: Vec3 = scale3(current.freeStream, 1 / velocity);
   let inducedDragN = 0;
@@ -392,11 +399,32 @@ export function solveTargetLiftAerodynamics(
     spanEfficiencyEstimate,
     strips: results,
     relativeResidual: current.relativeResidual,
-    trimIterations: trimIterations + 1,
+    trimIterations: fixedAlphaDeg === null ? trimIterations + 1 : 0,
     targetLiftError,
     symmetryError,
     panelCount,
     polarIterations: current.polarIterations,
     polarResidual: current.polarResidual,
   };
+}
+
+export function solveTargetLiftAerodynamics(
+  geometry: WingGeometry,
+  flightCase: FlightCase,
+  twistField: TwistField,
+  panelCount: number,
+  signal?: AbortSignal,
+) {
+  return solveAerodynamics(geometry, flightCase, twistField, panelCount, null, signal);
+}
+
+export function solveFixedAngleAerodynamics(
+  geometry: WingGeometry,
+  flightCase: FlightCase,
+  twistField: TwistField,
+  panelCount: number,
+  alphaDeg: number,
+  signal?: AbortSignal,
+) {
+  return solveAerodynamics(geometry, flightCase, twistField, panelCount, alphaDeg, signal);
 }

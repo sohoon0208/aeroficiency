@@ -31,7 +31,7 @@ export const ALUMINUM_2024_T3: MaterialDefinition = {
   yieldStrengthPa: 345e6,
 };
 
-export const SOLVER_VERSION = 'aeroficiency-0.5.0';
+export const SOLVER_VERSION = 'aeroficiency-0.6.0';
 export const MAX_ACTIVITY_EVENTS = 80;
 export const MAX_DESIGNS = 6;
 export const MAX_ANALYSES = 24;
@@ -63,6 +63,13 @@ export const SOLVER_SETTINGS = {
   standard: { fullSpanPanelCount: 32 },
   vortexCoreRatio: 1e-6,
   alphaBracketDeg: [-8, 12],
+  angleSweep: {
+    minimumDeg: -8,
+    maximumDeg: 12,
+    minimumSpanDeg: 2,
+    allowedStepDeg: [0.5, 1] as const,
+    maximumPointCount: 41,
+  },
   requiredTargetCl: [0.15, 1],
   maxElasticTwistDeg: 15,
   maxTipDeflectionSemispanFraction: 0.1,

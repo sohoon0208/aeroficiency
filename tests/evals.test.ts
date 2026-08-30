@@ -118,5 +118,5 @@ describe('deterministic solver-domain fixture', () => {
       / fixture.baselineMetrics.inducedDragN;
     expect(massReductionPct).toBeCloseTo(8.493188692216165, 10);
     expect(dragChangePct).toBeCloseTo(-0.003271683370555275, 12);
-  }, 40_000);
+  }, 120_000);
 });

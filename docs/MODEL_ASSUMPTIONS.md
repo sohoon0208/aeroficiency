@@ -1,6 +1,6 @@
 # Model assumptions and conventions
 
-Aeroficiency solver `aeroficiency-0.5.0` implements a deterministic, low-order, Reynolds/polar-aware, torsion-coupled static wing model for transparent preliminary trade studies. These limits are part of every result.
+Aeroficiency solver `aeroficiency-0.6.0` implements a deterministic, low-order, Reynolds/polar-aware, torsion-coupled static wing model for transparent preliminary trade studies. These limits are part of every result.
 
 ## Structured validity contract
 
@@ -12,6 +12,7 @@ The authoritative machine-readable contract is `lib/domain/modelValidity.ts`; sh
 | Method | `LOW_ORDER_REYNOLDS_POLAR_TORSION_COUPLED_STATIC` |
 | Wake model | `FIXED_POSITIVE_X_BODY_AXIS` |
 | Target-lift trim bracket | −8° to +12° |
+| Configurable fixed-AoA sweep | −8° to +12°; minimum 2° span; 0.5° or 1° step; maximum 41 points |
 | Aerodynamic fidelity | 16 full-span panels (`fast`) or 32 (`standard`) |
 
 Supported scalar bounds include span 4–16 m, root chord 0.8–4 m, tip chord 0.3–3 m, taper ratio 0.2–1, aspect ratio 4–14, root twist 0°, tip twist −6° to +3°, skin gauge 1.2–6 mm, front/rear web gauges 1.5–8 mm, elastic axis 0.20c–0.55c, target lift 2–120 kN, speed 20–85 m/s, altitude 0–11 km, density 0.25–1.5 kg/m³, and dynamic viscosity 1e−5–2.5e−5 Pa·s. The combined geometry/case must require target CL 0.15–1.00. Elastic twist is limited to 15° and tip deflection to 10% of semispan.
@@ -52,7 +53,7 @@ Each station accepts:
 - a supported NACA four-digit definition with 0–6% camber and 6–24% thickness; or
 - 24–161 finite contour points with a visible name and optional bounded source string.
 
-Imported contours are deduplicated, translated, rotated to the inferred chord, normalized to unit chord, de-trended between leading and trailing edges, checked for self-intersection and positive interior thickness, split into upper/lower branches, and cosine-resampled. NACA and imported sections then share the same canonical camber and half-thickness representation.
+Imported contours are deduplicated, translated, rotated to the inferred chord, normalized to unit chord, de-trended between leading and trailing edges, checked for self-intersection and positive interior thickness, split into upper/lower branches, and cosine-resampled. If measured branches cross only inside the final edge closure after resampling, the last positive half-thickness is continued linearly to the zero-thickness leading or trailing edge; this prevents coincident panel rows without changing the supplied interior contour. NACA and imported sections then share the same canonical camber and half-thickness representation.
 
 At every requested `eta`, the solver resolves a local section. That exact local section drives:
 
@@ -101,6 +102,12 @@ L' = q_local c Cl_section
 
 The polar residual is solved with Newton updates, line search, and a deterministic fallback. The outer target-lift trim finds the full-wing angle of attack that matches the prescribed lift. Dense solves use scaled partial-pivot LU and residual checks.
 
+## Fixed-angle sweep
+
+The official comparison snapshot remains the target-lift trim. Separately, each configured sweep angle reruns the full fixed-angle aerodynamic solve, section-polar closure, structural response, and torsional fixed-point coupling. The stored points therefore have their own circulation, local effective incidence, Reynolds/polar evaluation, induced/profile drag, deformation, elastic twist, stress, and convergence record; they are not interpolated or scaled from the trim result.
+
+The default sweep is −4° to +10° in 0.5° increments. The human or `configure_angle_sweep` Site Tool may choose any valid range within −8° to +12°. The visible scrubber selects only a precomputed immutable point, so dragging it does not launch hidden analyses or change the official configured checks. Because the generated polar and the 2D panel diagnostic are attached-flow models, the upper end of a wide sweep is not a stall prediction.
+
 Wake-induced drag comes from the wake-only induced velocity. Profile drag is integrated from local section `Cd`:
 
 ```text
@@ -127,7 +134,7 @@ Torsional deformation feeds back into the aerodynamic incidence through an under
 
 ## Analysis-bound diagnostics
 
-The 2D Section Flow Lab solves an independent Hess–Smith source/global-vortex potential-flow problem for the exact selected local section. It reports `Cp`, force/moment coefficients, Kutta/source residuals, streamlines, and vectors. The 3D viewport is a committed geometry/load/structure visualization; it is not a CFD field solver.
+The 2D Section Flow Lab solves an independent Hess–Smith source/global-vortex potential-flow problem for the exact selected local section. At a selected sweep point its incidence is the stored wing AoA plus local geometric and elastic twist minus the signed induced-flow angle. It reports `Cp`, force/moment coefficients, Kutta/source residuals, streamlines, and vectors. The 3D viewport is a committed geometry/load/structure visualization; it is not a CFD field solver.
 
 The Efficiency mode reads immutable strip/station data and shows local Reynolds number, sectional lift, profile drag, polar range state, induced/profile/combined drag, and estimated wing L/D. Changing a visualization selection does not mutate the design or rerun the coupled solver.
 

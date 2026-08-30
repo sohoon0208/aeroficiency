@@ -9,7 +9,7 @@ export interface SectionCondition {
   chordM: number;
   geometricTwistDeg: number;
   elasticTwistDeg: number;
-  trimIncidenceDeg: number;
+  wingAngleOfAttackDeg: number;
   inducedAngleDeg: number;
   localIncidenceDeg: number;
   reynoldsNumber: number;
@@ -29,10 +29,10 @@ export function deriveSectionCondition(
   const geometricTwistDeg = design.geometry.rootTwistDeg + (design.geometry.tipTwistDeg - design.geometry.rootTwistDeg) * eta;
   const elasticTwistDeg = Number(interpolateStationValue(analysis, eta, 'elasticTwistDeg'));
   const inducedAngleDeg = Number(interpolateStationValue(analysis, eta, 'inducedAngleDeg'));
-  const trimIncidenceDeg = analysis.metrics.trimmedAlphaDeg;
-  const localIncidenceDeg = trimIncidenceDeg + geometricTwistDeg + elasticTwistDeg - inducedAngleDeg;
+  const wingAngleOfAttackDeg = analysis.metrics.trimmedAlphaDeg;
+  const localIncidenceDeg = wingAngleOfAttackDeg + geometricTwistDeg + elasticTwistDeg - inducedAngleDeg;
   const reynoldsNumber = flightCase.airDensityKgM3 * flightCase.velocityMps * chordM / flightCase.dynamicViscosityPaS;
-  if (![chordM, geometricTwistDeg, elasticTwistDeg, inducedAngleDeg, trimIncidenceDeg, localIncidenceDeg, reynoldsNumber].every(Number.isFinite)) {
+  if (![chordM, geometricTwistDeg, elasticTwistDeg, inducedAngleDeg, wingAngleOfAttackDeg, localIncidenceDeg, reynoldsNumber].every(Number.isFinite)) {
     throw new Error('The immutable analysis does not contain a finite local section condition.');
   }
   return {
@@ -42,7 +42,7 @@ export function deriveSectionCondition(
     chordM,
     geometricTwistDeg,
     elasticTwistDeg,
-    trimIncidenceDeg,
+    wingAngleOfAttackDeg,
     inducedAngleDeg,
     localIncidenceDeg,
     reynoldsNumber,

@@ -8,26 +8,27 @@ Aeroficiency is a browser-based preliminary wing co-design workspace for a human
 
 ## Challenge fit
 
-The project is designed around WebMCP rather than merely adding tools to an unrelated site. An agent can read exact engineering state, create a candidate, change the Baseline reference, make bounded changes, run the solver, focus visible evidence, and compare exact immutable analyses. These actions are exposed as nine narrow page-scoped Site Tools through `document.modelContext.registerTool` when WebMCP is available.
+The project is designed around WebMCP rather than merely adding tools to an unrelated site. An agent can read exact engineering state, create a candidate, change the Baseline reference, make bounded changes, configure the shared angle-of-attack sweep, run the solver, focus visible evidence, and compare exact immutable analyses. These actions are exposed as ten narrow page-scoped Site Tools through `document.modelContext.registerTool` when WebMCP is available.
 
 The normal UI and Site Tools call the same domain commands. Exactly one design holds the editable Baseline role, comparison remains unavailable until at least one candidate exists, writes require explicit revisions and idempotency keys, stale writes fail closed, and accepted agent actions appear immediately in the controls, plots, results, and activity log. The application remains fully usable by a human when WebMCP is unavailable.
 
 ## Release status
 
-Release identity: app `0.5.0`, solver `aeroficiency-0.5.0`, tool schema `aeroficiency-webmcp-1.4`.
+Release identity: app `0.6.0`, solver `aeroficiency-0.6.0`, tool schema `aeroficiency-webmcp-1.5`.
 
 The V4/V5 implementation is complete locally:
 
 - V4: two to six user-positioned airfoil stations; arbitrary supported NACA four-digit sections; a built-in Clark Y, Selig S, Selig/Giguère SG, and NASA SC(2) geometry catalogue; imported coordinate definitions; local camber/thickness interpolation; local zero-lift angle and quarter-chord moment; spanwise 3D loft; and local wing-box geometry.
 - V5: generated attached-flow section polars or bounded user-imported station/Reynolds tables, nonlinear section-polar lifting-line closure, local Reynolds number, profile drag, combined wing drag, estimated wing L/D, range diagnostics, and polar-linked torsional loading.
-- UI: separate Planform/Airfoils/Structure/Case editors; five linked engineering views; and Overview/Checks/Compare/Log result sections.
+- AoA exploration: a user-configurable −8° to +12° fixed-angle range in 0.5° or 1° increments; a full VLM/section-polar/torsion solve at every sampled angle; linked 3D, load, structure, efficiency, and 2D Section views; and immutable trim-versus-sweep separation.
+- UI: separate Planform/Airfoils/Structure/Case editors; five linked engineering views; an AoA scrubber; and Overview/Checks/Compare/Log result sections.
 
 The implementation is release-ready locally. Public repository publication, a judge-accessible deployment, recording, and final submission remain explicit owner actions. No URL should be treated as final until its logged-out live-origin checks pass.
 
 | Artifact | Status |
 |---|---|
 | Local V1–V5 implementation | Complete and under local release verification |
-| Nine-tool WebMCP contract | Implemented and locally exercised |
+| Ten-tool WebMCP contract | Implemented and locally exercised |
 | Public site/repository | Pending explicit publication approval |
 | Demo recording | Pending |
 | Challenge submission | Pending |
@@ -87,7 +88,7 @@ Set `NEXT_PUBLIC_SITE_URL` to the final HTTPS origin before the public release s
 
 The canonical challenge scenario deliberately uses two structural proposals. The first, `1.75 / 2.10 / 2.10 mm`, does not meet the 5% modeled wall-mass objective. The corrected `1.65 / 2.00 / 2.00 mm` candidate gives about 8.49% modeled wall-mass reduction and passes all five checks in the frozen V5 fixture. The wake-induced-drag change is numerically tiny and is described as no meaningful improvement. Profile and combined wing drag are reported as additional V5 evidence, not as whole-aircraft drag or as configured optimization checks.
 
-## The nine Site Tools
+## The ten Site Tools
 
 | Tool | Mode | Purpose |
 |---|---|---|
@@ -98,10 +99,11 @@ The canonical challenge scenario deliberately uses two structural proposals. The
 | `set_baseline_design` | Write | Select the Baseline reference; re-selecting it is unchanged, while a role change retains the former Baseline as a candidate |
 | `update_wing_geometry` | Write | Apply bounded planform, airfoil-station, or polar-model changes |
 | `update_wing_structure` | Write | Apply bounded gauges or elastic-axis position |
+| `configure_angle_sweep` | Write | Configure the shared fixed-AoA range and resolution with revision and idempotency protection |
 | `run_aeroelastic_analysis` | Write | Run one revision-checked analysis and commit a validated snapshot |
 | `compare_designs` | Presentation | Pin an exact current baseline/candidate analysis pair without rerunning |
 
-The inventory is exactly two reads, two presentation actions, and five engineering writes. Presentation actions never alter engineering revisions or analyses. See [WebMCP tools](docs/WEBMCP_TOOLS.md) and [evals](docs/EVALS.md).
+The inventory is exactly two reads, two presentation actions, and six engineering writes. Presentation actions never alter engineering revisions or analyses. See [WebMCP tools](docs/WEBMCP_TOOLS.md) and [evals](docs/EVALS.md).
 
 ## Architecture
 
@@ -112,7 +114,7 @@ Site Tools ─────┘                                      │
                                                       v
                                            analysis Web Worker
                                                       │
-                 nonlinear section-polar lifting line + target-lift trim
+            nonlinear section-polar lifting line + target-lift trim and AoA sweep
                              ↕ torsional fixed-point coupling
                    local airfoil/wing box + beam/torsion structure
                                                       │
@@ -148,6 +150,7 @@ The hosting scaffold uses ChatGPT Sites with Vinext/Vite and a Cloudflare Worker
 - Full-wing cosine-spaced, one-row horseshoe lattice with nonlinear SectionPolar closure and target-lift trim.
 - Local Reynolds interpolation from generated or user-supplied polars; spanwise profile-drag integration.
 - Wake-induced drag plus profile drag gives a preliminary combined wing-drag estimate and wing L/D.
+- Each configured fixed-AoA point reruns the aerodynamic and torsional coupling; the scrubber does not scale a single trim solution or pretend to be CFD.
 - 3D geometry, aero-load, and structure views that read the committed analysis snapshot.
 - Independent linked Hess–Smith 2D section diagnostic with `Cp`, force/moment, and residual checks.
 - Closed thin-walled Aluminum 2024-T3 wing box; right-semispan bending/torsion and full-wing wall mass.

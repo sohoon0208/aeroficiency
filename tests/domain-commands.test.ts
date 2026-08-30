@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   commitAnalysisSnapshot,
+  configureAngleSweep,
   createCandidateVariant,
   preflightAnalysisRun,
   renameDesign,
@@ -43,6 +44,51 @@ function branchCandidate(state: ProjectState, label = 'Candidate A') {
 }
 
 describe('domain mutation and snapshot boundaries', () => {
+  it('configures the shared AoA sweep atomically, stales analyses, and preserves idempotent unchanged semantics', () => {
+    const initial = createDefaultProject();
+    const baseline = initial.designs[initial.activeDesignId];
+    const committed = commitAnalysisSnapshot(initial, runRequest(initial), buildAnalysisSnapshot(initial, baseline, 'fast'), 'solver');
+    expect(committed.result.ok).toBe(true);
+    if (!committed.result.ok) return;
+    const request = {
+      expectedProjectRevision: committed.state.projectRevision,
+      expectedFlightCaseRevision: committed.state.flightCase.revision,
+      idempotencyKey: createIdempotencyKey(),
+      patch: { sweepMinAlphaDeg: -2, sweepMaxAlphaDeg: 6, sweepStepAlphaDeg: 1 as const },
+    };
+    const changed = configureAngleSweep(committed.state, request, 'human');
+    expect(changed.result.ok).toBe(true);
+    if (!changed.result.ok) return;
+    expect(changed.result.data).toMatchObject({ outcome: 'changed', previousFlightCaseRevision: committed.state.flightCase.revision, newFlightCaseRevision: committed.state.flightCase.revision + 1 });
+    expect(changed.state.projectRevision).toBe(committed.state.projectRevision + 1);
+    expect(changed.state.flightCase).toMatchObject({ sweepMinAlphaDeg: -2, sweepMaxAlphaDeg: 6, sweepStepAlphaDeg: 1 });
+    expect(designAnalysisFreshness(changed.state, changed.state.designs[baseline.designId])).toBe('stale');
+    expect(changed.state.activities[0]).toMatchObject({ operation: 'configure_angle_sweep', targetDesignId: null });
+
+    const replay = configureAngleSweep(changed.state, request, 'human');
+    expect(replay.result.ok && replay.result.replayed).toBe(true);
+    expect(replay.state).toBe(changed.state);
+
+    const unchanged = configureAngleSweep(changed.state, {
+      expectedProjectRevision: changed.state.projectRevision,
+      expectedFlightCaseRevision: changed.state.flightCase.revision,
+      idempotencyKey: createIdempotencyKey(),
+      patch: { sweepStepAlphaDeg: 1 },
+    }, 'agent');
+    expect(unchanged.result.ok && unchanged.result.data.outcome).toBe('unchanged');
+    expect(unchanged.state.projectRevision).toBe(changed.state.projectRevision);
+    expect(unchanged.state.activities).toHaveLength(changed.state.activities.length);
+
+    const invalid = configureAngleSweep(changed.state, {
+      expectedProjectRevision: changed.state.projectRevision,
+      expectedFlightCaseRevision: changed.state.flightCase.revision,
+      idempotencyKey: createIdempotencyKey(),
+      patch: { sweepMinAlphaDeg: 5.5 },
+    }, 'agent');
+    expect(invalid.result.ok).toBe(false);
+    expect(invalid.state).toBe(changed.state);
+  });
+
   it('renames design metadata without staling or revising its solver inputs', () => {
     const initial = createDefaultProject();
     const baseline = initial.designs[initial.activeDesignId];

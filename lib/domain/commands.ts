@@ -15,6 +15,7 @@ import type {
   DesignId,
   DomainFailure,
   DomainResult,
+  FlightCase,
   ProjectState,
   SolverFidelity,
   WingDesign,
@@ -545,6 +546,113 @@ export function updateWingStructure(state: ProjectState, input: UpdateDesignInpu
   }, runtime);
 }
 
+export type AngleSweepPatch = Pick<FlightCase, 'sweepMinAlphaDeg' | 'sweepMaxAlphaDeg' | 'sweepStepAlphaDeg'>;
+
+export interface ConfigureAngleSweepInput {
+  expectedProjectRevision: number;
+  expectedFlightCaseRevision: number;
+  idempotencyKey: string;
+  patch: Partial<AngleSweepPatch>;
+}
+
+export interface ConfigureAngleSweepResult {
+  outcome: 'changed' | 'unchanged';
+  previousFlightCaseRevision: number;
+  newFlightCaseRevision: number;
+  projectRevision: number;
+  sweep: AngleSweepPatch;
+  invalidatedAnalysisIds: AnalysisId[];
+  activityId: ActivityId | null;
+}
+
+export function configureAngleSweep(
+  state: ProjectState,
+  input: ConfigureAngleSweepInput,
+  actor: Actor,
+  runtime: CommandRuntime = defaultRuntime,
+): StateTransition<ConfigureAngleSweepResult> {
+  const replay = idempotentReplay<ConfigureAngleSweepResult>(state, 'configure_angle_sweep', input.idempotencyKey, input);
+  if (replay) return { state, result: replay };
+  if (state.projectRevision !== input.expectedProjectRevision || state.flightCase.revision !== input.expectedFlightCaseRevision) {
+    return {
+      state,
+      result: fail('REVISION_CONFLICT', 'The shared flight case advanced before the AoA sweep changed.', 'Read the current flight-case revision and retry with a new UUID.', {
+        retryable: true,
+        current: { projectRevision: state.projectRevision, flightCaseRevision: state.flightCase.revision, constraintsRevision: state.constraints.revision },
+      }),
+    };
+  }
+  const allowed = new Set<keyof AngleSweepPatch>(['sweepMinAlphaDeg', 'sweepMaxAlphaDeg', 'sweepStepAlphaDeg']);
+  const keys = Object.keys(input.patch) as Array<keyof AngleSweepPatch>;
+  if (!keys.length) return { state, result: fail('VALIDATION_ERROR', 'The AoA sweep patch is empty.', 'Provide at least one minimum, maximum, or increment value.') };
+  const unsupported = keys.filter((key) => !allowed.has(key));
+  if (unsupported.length) return { state, result: fail('VALIDATION_ERROR', 'The AoA sweep patch contains unsupported fields.', 'Use only minimum angle, maximum angle, and increment.', { issues: unsupported.map((key) => ({ path: `patch.${key}`, reason: 'Unknown field.' })) }) };
+  const candidate = { ...state.flightCase, ...structuredClone(input.patch) };
+  const issues = validateFlightCase(candidate).filter((issue) => issue.path.startsWith('flightCase.sweep'));
+  if (issues.length) return { state, result: fail('VALIDATION_ERROR', 'The requested AoA sweep is outside the supported model.', 'Correct the listed range values and retry; no partial update was applied.', { issues: issues.slice(0, 6) }) };
+  const sweep: AngleSweepPatch = {
+    sweepMinAlphaDeg: candidate.sweepMinAlphaDeg,
+    sweepMaxAlphaDeg: candidate.sweepMaxAlphaDeg,
+    sweepStepAlphaDeg: candidate.sweepStepAlphaDeg,
+  };
+  const changed = keys.some((key) => state.flightCase[key] !== candidate[key]);
+  if (!changed) {
+    const next = cloneState(state);
+    const now = runtime.now();
+    const data: ConfigureAngleSweepResult = {
+      outcome: 'unchanged',
+      previousFlightCaseRevision: state.flightCase.revision,
+      newFlightCaseRevision: state.flightCase.revision,
+      projectRevision: state.projectRevision,
+      sweep,
+      invalidatedAnalysisIds: [],
+      activityId: null,
+    };
+    recordIdempotency(next, 'configure_angle_sweep', input.idempotencyKey, input, data, now);
+    return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
+  }
+  const next = cloneState(state);
+  const now = runtime.now();
+  const activityId = runtime.createId('act');
+  const previousFlightCaseRevision = next.flightCase.revision;
+  const invalidatedAnalysisIds = Object.values(next.designs).map((design) => design.latestAnalysisId).filter((id): id is AnalysisId => Boolean(id));
+  const changedFields: ActivityEvent['changedFields'] = {};
+  const labels: Record<keyof AngleSweepPatch, string> = {
+    sweepMinAlphaDeg: 'flightCase.sweepMinAlphaDeg',
+    sweepMaxAlphaDeg: 'flightCase.sweepMaxAlphaDeg',
+    sweepStepAlphaDeg: 'flightCase.sweepStepAlphaDeg',
+  };
+  keys.forEach((key) => {
+    if (state.flightCase[key] !== candidate[key]) changedFields[labels[key]] = { from: state.flightCase[key], to: candidate[key], unit: 'deg' };
+  });
+  next.flightCase = { ...candidate, revision: previousFlightCaseRevision + 1 };
+  next.projectRevision += 1;
+  addActivity(next, {
+    activityId,
+    actor,
+    operation: 'configure_angle_sweep',
+    targetDesignId: null,
+    fromRevision: previousFlightCaseRevision,
+    toRevision: next.flightCase.revision,
+    summary: `Shared AoA sweep configured from ${sweep.sweepMinAlphaDeg}° to ${sweep.sweepMaxAlphaDeg}° in ${sweep.sweepStepAlphaDeg}° increments. Existing analyses are stale.`,
+    changedFields,
+    analysisId: null,
+    status: 'success',
+    timestamp: now,
+  });
+  const data: ConfigureAngleSweepResult = {
+    outcome: 'changed',
+    previousFlightCaseRevision,
+    newFlightCaseRevision: next.flightCase.revision,
+    projectRevision: next.projectRevision,
+    sweep,
+    invalidatedAnalysisIds,
+    activityId,
+  };
+  recordIdempotency(next, 'configure_angle_sweep', input.idempotencyKey, input, data, now);
+  return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
+}
+
 export interface RunAnalysisRequest {
   designId: DesignId;
   expectedProjectRevision: number;
@@ -637,11 +745,13 @@ export function preflightAnalysisRun(state: ProjectState, request: RunAnalysisRe
   return { ok: true, replayed: false, data: { kind: 'ready', designId: design.designId, inputFingerprint: designInputFingerprint(state, design, request.fidelity) } };
 }
 
-const SNAPSHOT_KEYS = ['analysisId', 'designId', 'designKind', 'status', 'designRevision', 'flightCaseRevision', 'constraintsRevision', 'fidelity', 'solverVersion', 'inputFingerprint', 'createdAt', 'convergence', 'metrics', 'stations', 'polarDiagnostics', 'constraints', 'warnings'] as const;
+const SNAPSHOT_KEYS = ['analysisId', 'designId', 'designKind', 'status', 'designRevision', 'flightCaseRevision', 'constraintsRevision', 'fidelity', 'solverVersion', 'inputFingerprint', 'createdAt', 'convergence', 'metrics', 'stations', 'polarDiagnostics', 'angleSweep', 'constraints', 'warnings'] as const;
 const CONVERGENCE_KEYS = ['iterations', 'equilibriumResidual', 'twistChangeDeg', 'relativeLoadChange', 'targetLiftErrorPct'] as const;
 const METRIC_KEYS = ['wingAreaM2', 'aspectRatio', 'structuralMassKg', 'liftN', 'liftCoefficient', 'inducedDragN', 'inducedDragCoefficientEstimate', 'profileDragEstimateN', 'profileDragCoefficientEstimate', 'combinedWingDragEstimateN', 'combinedDragCoefficientEstimate', 'estimatedWingLiftToDrag', 'spanEfficiencyEstimate', 'trimmedAlphaDeg', 'tipDeflectionM', 'tipElasticTwistDeg', 'minYieldMargin', 'maxBendingStressPa', 'maxTorsionalShearPa'] as const;
 const STATION_KEYS = ['eta', 'yM', 'chordM', 'geometricTwistDeg', 'liftPerSpanNpm', 'circulationM2s', 'downwashMps', 'inducedAngleDeg', 'inducedDragPerSpanNpm', 'airfoilLabel', 'zeroLiftAngleDeg', 'pitchingMomentCoefficient', 'reynoldsNumber', 'sectionalLiftCoefficient', 'profileDragCoefficient', 'profileDragPerSpanNpm', 'polarState', 'shearN', 'bendingMomentNm', 'torqueNm', 'deflectionM', 'elasticTwistDeg', 'bendingStiffnessNm2', 'torsionalStiffnessNm2', 'vonMisesStressPa', 'yieldMargin'] as const;
 const POLAR_DIAGNOSTIC_KEYS = ['model', 'profileDragAvailable', 'withinRangeStations', 'analyticEstimateStations', 'extrapolatedAlphaStations', 'outsideReynoldsStations', 'outsideAlphaStations', 'reynoldsRange', 'effectiveAlphaRangeDeg', 'provenance'] as const;
+const ANGLE_SWEEP_KEYS = ['minimumAlphaDeg', 'maximumAlphaDeg', 'stepAlphaDeg', 'trimAlphaDeg', 'bestLiftToDragAlphaDeg', 'points'] as const;
+const ANGLE_SWEEP_POINT_KEYS = ['alphaDeg', 'status', 'convergence', 'metrics', 'stations', 'polarDiagnostics'] as const;
 const CONSTRAINT_KEYS = ['key', 'label', 'state', 'actual', 'limit', 'unit', 'detail'] as const;
 const EXPECTED_CONSTRAINT_KEYS = ['mass_reduction', 'yield_margin', 'tip_deflection', 'induced_drag', 'convergence'] as const;
 
@@ -839,6 +949,102 @@ function snapshotIsValid(
       || (polarDiagnostics.effectiveAlphaRangeDeg[1] as number) < (polarDiagnostics.effectiveAlphaRangeDeg[0] as number)
       || !Array.isArray(polarDiagnostics.provenance) || polarDiagnostics.provenance.length < 1 || polarDiagnostics.provenance.length > 6
       || !polarDiagnostics.provenance.every((value) => typeof value === 'string' && value.length > 0 && value.length <= 120 && !/[\u0000-\u001f\u007f]/.test(value))) return false;
+
+    if (!isRecord(raw.angleSweep) || !exactKeys(raw.angleSweep, ANGLE_SWEEP_KEYS)) return false;
+    const sweep = raw.angleSweep;
+    const expectedSweepPointCount = Math.round((state.flightCase.sweepMaxAlphaDeg - state.flightCase.sweepMinAlphaDeg) / state.flightCase.sweepStepAlphaDeg) + 1;
+    if (!nearlyEqual(sweep.minimumAlphaDeg as number, state.flightCase.sweepMinAlphaDeg, 0, 1e-10)
+      || !nearlyEqual(sweep.maximumAlphaDeg as number, state.flightCase.sweepMaxAlphaDeg, 0, 1e-10)
+      || sweep.stepAlphaDeg !== state.flightCase.sweepStepAlphaDeg
+      || !nearlyEqual(sweep.trimAlphaDeg as number, metrics.trimmedAlphaDeg as number)
+      || (sweep.bestLiftToDragAlphaDeg !== null && !finite(sweep.bestLiftToDragAlphaDeg))
+      || !Array.isArray(sweep.points)
+      || sweep.points.length !== expectedSweepPointCount) return false;
+    const convergedSweepPoints: Array<Record<string, unknown>> = [];
+    for (let sweepIndex = 0; sweepIndex < sweep.points.length; sweepIndex += 1) {
+      const point = sweep.points[sweepIndex];
+      if (!isRecord(point) || !exactKeys(point, ANGLE_SWEEP_POINT_KEYS)) return false;
+      const expectedAlpha = state.flightCase.sweepMinAlphaDeg + sweepIndex * state.flightCase.sweepStepAlphaDeg;
+      if (!finite(point.alphaDeg) || !nearlyEqual(point.alphaDeg, expectedAlpha, 0, 1e-9)) return false;
+      if (point.status !== 'converged' && point.status !== 'not_converged') return false;
+      if (!isRecord(point.convergence) || !exactKeys(point.convergence, CONVERGENCE_KEYS)) return false;
+      if (!Number.isInteger(point.convergence.iterations) || (point.convergence.iterations as number) < 2 || (point.convergence.iterations as number) > SOLVER_SETTINGS.couplingMaxIterations) return false;
+      if (![point.convergence.equilibriumResidual, point.convergence.twistChangeDeg, point.convergence.relativeLoadChange, point.convergence.targetLiftErrorPct].every(finite)) return false;
+      if ((point.convergence.equilibriumResidual as number) < 0 || (point.convergence.twistChangeDeg as number) < 0 || (point.convergence.relativeLoadChange as number) < 0 || (point.convergence.targetLiftErrorPct as number) < 0) return false;
+      if (point.status === 'converged') {
+        const twistToleranceDeg = SOLVER_SETTINGS.iterateChangeToleranceRad * 180 / Math.PI;
+        if ((point.convergence.equilibriumResidual as number) > SOLVER_SETTINGS.equilibriumToleranceRad * 1.001
+          || (point.convergence.twistChangeDeg as number) > twistToleranceDeg * 1.001
+          || (point.convergence.relativeLoadChange as number) > SOLVER_SETTINGS.relativeLoadTolerance * 1.001) return false;
+        convergedSweepPoints.push(point);
+      } else if (point.convergence.iterations !== SOLVER_SETTINGS.couplingMaxIterations) return false;
+      if (!isRecord(point.metrics) || !exactKeys(point.metrics, METRIC_KEYS)) return false;
+      const pointMetrics = point.metrics;
+      if (!METRIC_KEYS.filter((key) => key !== 'inducedDragCoefficientEstimate' && key !== 'spanEfficiencyEstimate').every((key) => finite(pointMetrics[key]))) return false;
+      if (pointMetrics.inducedDragCoefficientEstimate !== null && !finite(pointMetrics.inducedDragCoefficientEstimate)) return false;
+      if (pointMetrics.spanEfficiencyEstimate !== null && !finite(pointMetrics.spanEfficiencyEstimate)) return false;
+      if (!nearlyEqual(pointMetrics.wingAreaM2 as number, area)
+        || !nearlyEqual(pointMetrics.aspectRatio as number, aspectRatio)
+        || !nearlyEqual(pointMetrics.structuralMassKg as number, expectedStructuralMassKg(design), 1e-8, 1e-8)
+        || !nearlyEqual(pointMetrics.trimmedAlphaDeg as number, point.alphaDeg as number, 0, 1e-8)
+        || !nearlyEqual(pointMetrics.liftCoefficient as number, (pointMetrics.liftN as number) / dynamicPressureArea)
+        || (pointMetrics.inducedDragN as number) < 0
+        || (pointMetrics.inducedDragCoefficientEstimate !== null && !nearlyEqual(pointMetrics.inducedDragCoefficientEstimate as number, (pointMetrics.inducedDragN as number) / dynamicPressureArea))
+        || (pointMetrics.profileDragEstimateN as number) <= 0
+        || !nearlyEqual(pointMetrics.profileDragCoefficientEstimate as number, (pointMetrics.profileDragEstimateN as number) / dynamicPressureArea)
+        || !nearlyEqual(pointMetrics.combinedWingDragEstimateN as number, (pointMetrics.inducedDragN as number) + (pointMetrics.profileDragEstimateN as number))
+        || !nearlyEqual(pointMetrics.combinedDragCoefficientEstimate as number, (pointMetrics.combinedWingDragEstimateN as number) / dynamicPressureArea)
+        || (pointMetrics.combinedDragCoefficientEstimate as number) <= 0
+        || !nearlyEqual(pointMetrics.estimatedWingLiftToDrag as number, (pointMetrics.liftN as number) / (pointMetrics.combinedWingDragEstimateN as number))
+        || Math.abs(pointMetrics.tipDeflectionM as number) > SOLVER_SETTINGS.maxTipDeflectionSemispanFraction * design.geometry.spanM / 2 + 1e-9
+        || Math.abs(pointMetrics.tipElasticTwistDeg as number) > SOLVER_SETTINGS.maxElasticTwistDeg + 1e-8
+        || (pointMetrics.minYieldMargin as number) <= 0
+        || (pointMetrics.maxBendingStressPa as number) < 0
+        || (pointMetrics.maxTorsionalShearPa as number) < 0) return false;
+      if (pointMetrics.spanEfficiencyEstimate !== null && (pointMetrics.inducedDragCoefficientEstimate === null
+        || (pointMetrics.inducedDragCoefficientEstimate as number) <= 0
+        || !nearlyEqual(pointMetrics.spanEfficiencyEstimate as number, (pointMetrics.liftCoefficient as number) ** 2 / (Math.PI * aspectRatio * (pointMetrics.inducedDragCoefficientEstimate as number))))) return false;
+      if (!Array.isArray(point.stations) || point.stations.length !== expectedStationCount) return false;
+      for (let stationIndex = 0; stationIndex < point.stations.length; stationIndex += 1) {
+        const sweepStation = point.stations[stationIndex];
+        if (!isRecord(sweepStation) || !exactKeys(sweepStation, STATION_KEYS)) return false;
+        if (!STATION_KEYS.filter((key) => key !== 'yieldMargin' && key !== 'airfoilLabel' && key !== 'polarState').every((key) => finite(sweepStation[key]))) return false;
+        if (sweepStation.yieldMargin !== null && (!finite(sweepStation.yieldMargin) || sweepStation.yieldMargin <= 0)) return false;
+        if (typeof sweepStation.airfoilLabel !== 'string' || sweepStation.airfoilLabel.length < 1 || sweepStation.airfoilLabel.length > 80) return false;
+        if (!['within_range', 'extrapolated_alpha', 'outside_reynolds', 'outside_alpha', 'analytic_estimate'].includes(sweepStation.polarState as string)) return false;
+        const expectedStation = raw.stations[stationIndex] as Record<string, unknown>;
+        if (!nearlyEqual(sweepStation.eta as number, expectedStation.eta as number, 0, 1e-12)
+          || !nearlyEqual(sweepStation.yM as number, expectedStation.yM as number)
+          || !nearlyEqual(sweepStation.chordM as number, expectedStation.chordM as number)
+          || !nearlyEqual(sweepStation.geometricTwistDeg as number, expectedStation.geometricTwistDeg as number)
+          || sweepStation.airfoilLabel !== expectedStation.airfoilLabel
+          || !nearlyEqual(sweepStation.zeroLiftAngleDeg as number, expectedStation.zeroLiftAngleDeg as number)
+          || !nearlyEqual(sweepStation.reynoldsNumber as number, expectedStation.reynoldsNumber as number)
+          || (sweepStation.profileDragCoefficient as number) < 0
+          || (sweepStation.profileDragPerSpanNpm as number) < 0
+          || !nearlyEqual(sweepStation.inducedAngleDeg as number, Math.atan2(sweepStation.downwashMps as number, state.flightCase.velocityMps) * 180 / Math.PI, 1e-8, 1e-9)
+          || (sweepStation.vonMisesStressPa as number) < 0) return false;
+      }
+      const sweepTip = point.stations.at(-1) as Record<string, unknown>;
+      if (!nearlyEqual(sweepTip.liftPerSpanNpm as number, 0, 0, 1e-9)
+        || !nearlyEqual(sweepTip.circulationM2s as number, 0, 0, 1e-12)
+        || !nearlyEqual(sweepTip.downwashMps as number, 0, 0, 1e-12)
+        || !nearlyEqual(sweepTip.inducedAngleDeg as number, 0, 0, 1e-12)
+        || !nearlyEqual(sweepTip.deflectionM as number, pointMetrics.tipDeflectionM as number)
+        || !nearlyEqual(sweepTip.elasticTwistDeg as number, pointMetrics.tipElasticTwistDeg as number)) return false;
+      if (!isRecord(point.polarDiagnostics) || !exactKeys(point.polarDiagnostics, POLAR_DIAGNOSTIC_KEYS)) return false;
+      const pointPolar = point.polarDiagnostics;
+      if (pointPolar.model !== polarDiagnostics.model || pointPolar.profileDragAvailable !== true
+        || !countKeys.every((key) => Number.isInteger(pointPolar[key]) && (pointPolar[key] as number) >= 0)
+        || countKeys.reduce((sum, key) => sum + (pointPolar[key] as number), 0) !== expectedPanelCount / 2
+        || !Array.isArray(pointPolar.reynoldsRange) || pointPolar.reynoldsRange.length !== 2 || !pointPolar.reynoldsRange.every(finite)
+        || !Array.isArray(pointPolar.effectiveAlphaRangeDeg) || pointPolar.effectiveAlphaRangeDeg.length !== 2 || !pointPolar.effectiveAlphaRangeDeg.every(finite)
+        || !Array.isArray(pointPolar.provenance) || pointPolar.provenance.length < 1 || pointPolar.provenance.length > 6) return false;
+    }
+    const expectedBest = convergedSweepPoints
+      .filter((point) => (point.metrics as Record<string, number>).liftN > 0)
+      .reduce<Record<string, unknown> | null>((current, point) => !current || (point.metrics as Record<string, number>).estimatedWingLiftToDrag > (current.metrics as Record<string, number>).estimatedWingLiftToDrag ? point : current, null);
+    if (expectedBest === null ? sweep.bestLiftToDragAlphaDeg !== null : !nearlyEqual(sweep.bestLiftToDragAlphaDeg as number, expectedBest.alphaDeg as number, 0, 1e-9)) return false;
 
     if (!Array.isArray(raw.constraints) || raw.constraints.length !== EXPECTED_CONSTRAINT_KEYS.length) return false;
     const expectedConstraints = evaluateDesignConstraints(

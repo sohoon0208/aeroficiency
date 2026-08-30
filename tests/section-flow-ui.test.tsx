@@ -23,7 +23,7 @@ describe('V3 Section Flow Lab', () => {
     const condition = deriveSectionCondition(design, analysis, state.flightCase, 0.5);
     expect(condition.analysisId).toBe(analysis.analysisId);
     expect(condition.localIncidenceDeg).toBeCloseTo(
-      condition.trimIncidenceDeg + condition.geometricTwistDeg + condition.elasticTwistDeg - condition.inducedAngleDeg,
+      condition.wingAngleOfAttackDeg + condition.geometricTwistDeg + condition.elasticTwistDeg - condition.inducedAngleDeg,
       12,
     );
     expect(condition.inducedAngleDeg).toBeGreaterThan(0);
@@ -37,16 +37,17 @@ describe('V3 Section Flow Lab', () => {
     const { state, design, analysis } = fixture();
     const onSelectEta = vi.fn();
     render(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={onSelectEta} />);
-    expect(screen.getByRole('heading', { name: new RegExp(`NACA 2412.*${analysis.analysisId}`) })).toBeVisible();
+    expect(screen.getByRole('heading', { name: /NACA 2412.*wing α/ })).toBeVisible();
+    expect(screen.getByText(new RegExp(`Immutable analysis ${analysis.analysisId}`))).toBeVisible();
     expect(screen.getByRole('img', { name: /Inviscid streamlines and local velocity vectors/ })).toBeVisible();
     expect(screen.getByRole('img', { name: /Upper and lower surface pressure coefficient/ })).toBeVisible();
     expect(screen.getByText(/diagnostic does not alter the main wing analysis/)).toBeVisible();
     expect(screen.getByText(/Two-dimensional inviscid attached potential-flow diagnostic/)).toBeVisible();
     expect(screen.getByText(/Kutta residual/)).toBeVisible();
     expect(screen.getByText(/Re · coupled polar input/)).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Section panel resolution' })).toHaveValue('80');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Section panel resolution' }), { target: { value: '120' } });
     expect(screen.getByRole('combobox', { name: 'Section panel resolution' })).toHaveValue('120');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Section panel resolution' }), { target: { value: '160' } });
+    expect(screen.getByRole('combobox', { name: 'Section panel resolution' })).toHaveValue('160');
     fireEvent.change(screen.getByRole('slider', { name: /Linked 3D station/ }), { target: { value: '0.7' } });
     expect(onSelectEta).toHaveBeenCalledWith(0.7);
   });
