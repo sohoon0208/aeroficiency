@@ -30,7 +30,9 @@ function renderHeader() {
 describe('challenge first-screen controls', () => {
   it('shows the reference case, objective, validity, editable Baseline, candidate requirement, and nine-tool readiness', () => {
     renderHeader();
-    expect(screen.getByRole('img', { name: 'Aeroficiency' })).toBeVisible();
+    const logo = screen.getByRole('img', { name: 'Aeroficiency' });
+    expect(logo).toBeVisible();
+    expect(logo).toHaveAttribute('src', '/aeroficiency-logo-white.svg');
     expect(screen.queryByText('HUMAN + AGENT WING TRADE STUDIES')).not.toBeInTheDocument();
     expect(screen.getByText(/Reference Wing — 31\.6 kN target lift at 64 m\/s/)).toBeVisible();
     expect(screen.getByText(/Reduce modeled wall mass ≥5% · all 5 checks · wake drag no worse/)).toBeVisible();

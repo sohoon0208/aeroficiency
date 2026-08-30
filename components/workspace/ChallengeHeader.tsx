@@ -83,7 +83,7 @@ export function ChallengeHeader({ analysisState, activeDesignLabel, activeDesign
     <>
       <header className="challenge-header">
         <div className="brand-lockup">
-          <Image className="brand-logo" src="/aeroficiency-logo-white.png" alt="Aeroficiency" width={220} height={39} priority />
+          <Image className="brand-logo" src="/aeroficiency-logo-white.svg" alt="Aeroficiency" width={1065} height={189} priority unoptimized />
         </div>
 
         <section className="challenge-mission" aria-label="Reference challenge objective">
