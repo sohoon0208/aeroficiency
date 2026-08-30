@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { SpanwiseCharts } from '@/components/charts/SpanwiseCharts';
 import { AirfoilEditor, CaseEditor, GeometryEditor, StructureEditor } from '@/components/design/Editors';
 import { SectionFlowLab } from '@/components/flow/SectionFlowLab';
@@ -9,7 +9,7 @@ import { AngleSweepScrubber } from '@/components/flow/AngleSweepExplorer';
 import { ChallengeHeader } from '@/components/workspace/ChallengeHeader';
 import { WingViewport, type ViewMode } from '@/components/viewport/WingViewport';
 import { analysisIsCurrent } from '@/lib/domain/commands';
-import { analysisAtSweepPoint, sweepPointAtAngle } from '@/lib/domain/angleSweep';
+import { sweepPresentationAtAngle } from '@/lib/domain/angleSweep';
 import { createIdempotencyKey } from '@/lib/domain/ids';
 import { MODEL_WARNINGS } from '@/lib/domain/limits';
 import { interpolateStationValue } from '@/lib/domain/stations';
@@ -170,10 +170,14 @@ export function AeroficiencyWorkspace() {
   const selectedEta = presentation.eta ?? project.selectedEta;
   const current = Boolean(analysis && analysisIsCurrent(project, analysis.analysisId));
   const immutableState = immutableResultState(analysis, current);
-  const requestedSweepAlpha = sweepSelection && sweepSelection.analysisId === analysis?.analysisId ? sweepSelection.alphaDeg : null;
-  const selectedSweepPoint = useMemo(() => analysis?.status === 'converged' && current ? sweepPointAtAngle(analysis, requestedSweepAlpha) : null, [analysis, current, requestedSweepAlpha]);
+  const requestedSweepAlpha = sweepSelection && sweepSelection.analysisId === analysis?.analysisId
+    ? sweepSelection.alphaDeg
+    : analysis ? Number(analysis.angleSweep.trimAlphaDeg.toFixed(2)) : null;
+  const deferredSweepAlpha = useDeferredValue(requestedSweepAlpha);
+  const sweepPresentation = useMemo(() => analysis?.status === 'converged' && current ? sweepPresentationAtAngle(analysis, deferredSweepAlpha) : null, [analysis, current, deferredSweepAlpha]);
+  const selectedSweepPoint = sweepPresentation?.point ?? null;
   const visualAnalysis = analysis?.status === 'converged' && current
-    ? selectedSweepPoint ? analysisAtSweepPoint(analysis, selectedSweepPoint) : analysis
+    ? sweepPresentation?.analysis ?? analysis
     : null;
   const metricAnalysis = analysis;
   const overviewAnalysis = visualAnalysis ?? metricAnalysis;
@@ -472,7 +476,7 @@ export function AeroficiencyWorkspace() {
           </div>
           <div id="model-view-panel" role="tabpanel" aria-labelledby={`view-tab-${mode}`} className={`viewport-card ${mode === 'section' || mode === 'performance' ? 'section-mode' : ''} ${analysis && current && selectedSweepPoint ? 'sweep-active' : ''} ${presentation.focusedPanel === 'station' ? 'agent-focused' : ''}`}>
             <div className={`solver-strip ${runningForActive ? 'running' : immutableState.key}`}><span><i />{runningForActive ? 'SOLVER RUNNING' : immutableState.label}</span>{progressText && <span>{progressText}</span>}{metricAnalysis && <><span>Analysis {metricAnalysis.analysisId}</span><span>r{metricAnalysis.designRevision} · {metricAnalysis.fidelity}</span></>}</div>
-            {analysis && current && selectedSweepPoint && <AngleSweepScrubber analysis={analysis} point={selectedSweepPoint} onSelect={(alphaDeg) => setSweepSelection({ analysisId: analysis.analysisId, alphaDeg })} />}
+            {analysis && current && selectedSweepPoint && <AngleSweepScrubber key={`${analysis.analysisId}-${sweepPresentation?.source === 'snapped' ? `snap-${selectedSweepPoint.alphaDeg}` : 'smooth'}`} analysis={analysis} point={selectedSweepPoint} onSelect={(alphaDeg) => setSweepSelection({ analysisId: analysis.analysisId, alphaDeg })} />}
             {mode === 'section'
               ? <SectionFlowLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} />
               : mode === 'performance'
@@ -488,7 +492,7 @@ export function AeroficiencyWorkspace() {
           <div className="results-tabs" role="tablist" aria-label="Result sections">{([['overview', 'Overview'], ['checks', 'Checks'], ['compare', 'Compare'], ['log', 'Log']] as const).map(([key, label]) => <button key={key} id={`result-tab-${key}`} type="button" role="tab" tabIndex={resultTab === key ? 0 : -1} aria-selected={resultTab === key} aria-controls={`result-panel-${key}`} className={resultTab === key ? 'active' : ''} onClick={() => setResultTab(key)} onKeyDown={(event) => moveTabFocus(event, ['overview', 'checks', 'compare', 'log'] as const, resultTab, setResultTab, 'result-tab')}>{label}</button>)}</div>
           <div id="result-panel-overview" role="tabpanel" aria-labelledby="result-tab-overview" className="result-tab-panel" hidden={resultTab !== 'overview'}><div className="metrics-grid">
             <MetricCell label="Modeled wing-box wall mass" value={fmt(overviewAnalysis?.metrics.structuralMassKg, 1)} unit="kg" detail={metricAnalysis ? `Analysis r${metricAnalysis.designRevision}` : 'Awaiting analysis'} />
-            <MetricCell label="Wake-induced drag estimate" value={fmt(overviewAnalysis?.metrics.inducedDragN, 1)} unit="N" detail={selectedSweepPoint && current ? `Fixed α ${selectedSweepPoint.alphaDeg.toFixed(1)}° · not total drag` : 'Matched target lift · not total drag'} />
+            <MetricCell label="Wake-induced drag estimate" value={fmt(overviewAnalysis?.metrics.inducedDragN, 1)} unit="N" detail={selectedSweepPoint && current ? `${sweepPresentation?.source === 'interpolated' ? 'Interpolated display' : 'Solved'} α ${selectedSweepPoint.alphaDeg.toFixed(2)}° · not total drag` : 'Matched target lift · not total drag'} />
             <MetricCell label="Profile drag estimate" value={fmt(overviewAnalysis?.metrics.profileDragEstimateN, 1)} unit="N" detail={overviewAnalysis?.polarDiagnostics.model === 'user_section_polars' ? 'User SectionPolar tables' : 'Analytic attached-flow estimate'} />
             <MetricCell label="Combined wing drag estimate" value={fmt(overviewAnalysis?.metrics.combinedWingDragEstimateN, 1)} unit="N" detail="Induced + profile · wing only" />
             <MetricCell label="Estimated wing L/D" value={fmt(overviewAnalysis?.metrics.estimatedWingLiftToDrag, 1)} unit="" detail="No fuselage/interference drag" />

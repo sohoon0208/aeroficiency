@@ -150,7 +150,7 @@ The hosting scaffold uses ChatGPT Sites with Vinext/Vite and a Cloudflare Worker
 - Full-wing cosine-spaced, one-row horseshoe lattice with nonlinear SectionPolar closure and target-lift trim.
 - Local Reynolds interpolation from generated or user-supplied polars; spanwise profile-drag integration.
 - Wake-induced drag plus profile drag gives a preliminary combined wing-drag estimate and wing L/D.
-- Each configured fixed-AoA point reruns the aerodynamic and torsional coupling; the scrubber does not scale a single trim solution or pretend to be CFD.
+- Each configured fixed-AoA point reruns the aerodynamic and torsional coupling. The 0.01° visual scrubber interpolates only between adjacent converged solves and recalculates the local 2D panel field at every displayed incidence; it does not fabricate an additional immutable solve or pretend to be CFD.
 - 3D geometry, aero-load, and structure views that read the committed analysis snapshot.
 - Independent linked Hess–Smith 2D section diagnostic with `Cp`, force/moment, and residual checks.
 - Closed thin-walled Aluminum 2024-T3 wing box; right-semispan bending/torsion and full-wing wall mass.

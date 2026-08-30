@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SectionFlowLab } from '@/components/flow/SectionFlowLab';
-import { analysisAtSweepPoint, sweepPointAtAngle } from '@/lib/domain/angleSweep';
+import { analysisAtSweepPoint, sweepPointAtAngle, sweepPresentationAtAngle } from '@/lib/domain/angleSweep';
 import { createDefaultProject } from '@/lib/domain/defaults';
 import { buildAnalysisSnapshot } from '@/lib/solver/analysis';
 import { deriveSectionCondition } from '@/lib/visualization/sectionFlow';
@@ -39,7 +39,7 @@ describe('V3 Section Flow Lab', () => {
     const onSelectEta = vi.fn();
     render(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={onSelectEta} />);
     expect(screen.getByRole('heading', { name: /NACA 2412.*wing α/ })).toBeVisible();
-    expect(screen.getByText(new RegExp(`Immutable analysis ${analysis.analysisId}`))).toBeVisible();
+    expect(screen.getByText(new RegExp(`Presentation derived from immutable analysis ${analysis.analysisId}`))).toBeVisible();
     expect(screen.getByRole('img', { name: /Wind-axis inviscid attached-flow streamlines/ })).toBeVisible();
     expect(screen.getByRole('img', { name: /Upper and lower surface pressure coefficient/ })).toBeVisible();
     expect(screen.getByText(/Wind axes · horizontal U∞/)).toBeVisible();
@@ -76,6 +76,28 @@ describe('V3 Section Flow Lab', () => {
     expect(highIncidence).toBeGreaterThan(lowIncidence);
     expect(highOutline).not.toBe(lowOutline);
     expect(highGraphic).toHaveAccessibleName(new RegExp(`airfoil at ${highIncidence.toFixed(2)} degrees local incidence`));
+  });
+
+  it('recalculates pressure and streamlines across fine interpolated AoA movements', () => {
+    const { state, design, analysis } = fixture();
+    const first = sweepPresentationAtAngle(analysis, 2.2)!;
+    const second = sweepPresentationAtAngle(analysis, 2.21)!;
+    expect(first.source).toBe('interpolated');
+    expect(second.source).toBe('interpolated');
+
+    const rendered = render(<SectionFlowLab design={design} analysis={first.analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={() => undefined} />);
+    const firstGraphic = rendered.container.querySelector<SVGElement>('svg[data-reference-frame="wind"]')!;
+    const firstIncidence = Number(firstGraphic.dataset.incidenceDeg);
+    const firstOutline = firstGraphic.querySelector('.section-airfoil')!.getAttribute('points');
+    const firstStreamline = firstGraphic.querySelector('.section-streamline')!.getAttribute('points');
+    const firstPressure = rendered.container.querySelector('.cp-upper')!.getAttribute('points');
+
+    rendered.rerender(<SectionFlowLab design={design} analysis={second.analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={() => undefined} />);
+    const secondGraphic = rendered.container.querySelector<SVGElement>('svg[data-reference-frame="wind"]')!;
+    expect(Number(secondGraphic.dataset.incidenceDeg)).toBeGreaterThan(firstIncidence);
+    expect(secondGraphic.querySelector('.section-airfoil')!.getAttribute('points')).not.toBe(firstOutline);
+    expect(secondGraphic.querySelector('.section-streamline')!.getAttribute('points')).not.toBe(firstStreamline);
+    expect(rendered.container.querySelector('.cp-upper')!.getAttribute('points')).not.toBe(firstPressure);
   });
 
   it('fails closed without a current converged analysis', () => {

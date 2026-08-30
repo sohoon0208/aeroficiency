@@ -112,7 +112,7 @@ The wake-drag delta lies inside the UI’s ±0.05% neutral reporting band while 
 - [x] A real candidate workflow adds `afs_mid1`, moves it to eta 0.65, changes it to NACA 0015, and successfully commits a three-section revision-4 analysis.
 - [x] The analyzed multi-section wing updates the 3D loft, local section label, mass, drag, deformation, and polar-linked evidence.
 - [x] Geometry, Aero loads, 2D Section, Efficiency, and Structure modes all render from a current immutable analysis.
-- [x] A configured AoA sweep reruns the coupled solver at every point; its scrubber updates signed 3D/load/structure evidence, seven Efficiency plots, and local 2D incidence without mutating the official trim result.
+- [x] A configured AoA sweep reruns the coupled solver at every point; its 0.01° presentation scrubber interpolates adjacent converged states, updates signed 3D/load/structure evidence and seven Efficiency plots, and recalculates local 2D pressure/streamlines without mutating the official trim result.
 - [x] Thin, thick, cambered, high-lift, glider, and supercritical section families pass the finite/monotonic/positive-drag and Hess–Smith Kutta/flux residual matrix.
 - [x] Efficiency keeps drag summaries and local facts at readable heights and scrolls its plots deliberately.
 - [x] Planform/Airfoils/Structure/Case and Overview/Checks/Compare/Log tabs fit their containers.

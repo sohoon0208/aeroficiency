@@ -12,13 +12,15 @@ Cp = 1 - (V_tangent / V_infinity)^2
 
 The lab integrates surface pressure to report section lift coefficient, numerical inviscid drag residual, and conventional nose-up-positive quarter-chord moment coefficient. It also reports the Kutta residual, discrete source-flux residual, stagnation location, velocity vectors, total-velocity streamlines, and an accessible upper/lower surface `Cp` table.
 
-The section condition is derived from committed state rather than a free UI angle:
+The section condition is derived from the selected AoA presentation state rather than an independent section-only angle:
 
 ```text
-alpha_local = alpha_trim + theta_geometric + theta_elastic - alpha_induced
+alpha_local = alpha_display + theta_geometric + theta_elastic - alpha_induced
 ```
 
-Here `alpha_induced` is positive for downwash. Local chord and Reynolds number are shown as context. The selected immutable V5 SectionPolar evaluation is shown separately for `Cl`, `Cd`, `Cm`, provenance, and range state. Reynolds number does not modify the inviscid Hess–Smith equations; it only affects the separate SectionPolar evidence. Changing station or panel count changes only this diagnostic and never mutates the wing, reruns the coupled solver, or changes constraints.
+Here `alpha_induced` is positive for downwash. The scrubber exposes a 0.01-degree presentation grid. Exact configured sweep points retain their independently solved VLM/polar/torsion state; intermediate display positions linearly interpolate only between adjacent converged points. Failed gaps are never interpolated. At every displayed position, the local condition is derived again and the Hess–Smith surface pressure and streamline field are recalculated at that displayed incidence. This presentation does not add an immutable wing solve or change official trim-based checks.
+
+Local chord and Reynolds number are shown as context. The selected V5 SectionPolar evaluation is shown separately for `Cl`, `Cd`, `Cm`, provenance, and range state. Reynolds number does not modify the inviscid Hess–Smith equations; it only affects the separate SectionPolar evidence. Changing AoA display position, station, or panel count changes only this presentation and diagnostic; it never mutates the wing, reruns the coupled solver, or changes constraints.
 
 ## V5 — Efficiency and polar evidence
 

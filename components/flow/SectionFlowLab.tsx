@@ -114,7 +114,7 @@ export function SectionFlowLab({
   return (
     <section className="section-flow-lab" aria-label="Two-dimensional section flow laboratory">
       <header className="section-lab-header">
-        <div><span className="eyebrow">AOA-LINKED · LOCAL SECTION FLOW</span><h3>{section.label} · η {condition.eta.toFixed(3)} · wing α {condition.wingAngleOfAttackDeg.toFixed(1)}°</h3><p>Immutable analysis {analysis.analysisId} · selected precomputed sweep point · exact interpolated local contour.</p></div>
+        <div><span className="eyebrow">AOA-LINKED · LOCAL SECTION FLOW</span><h3>{section.label} · η {condition.eta.toFixed(3)} · wing α {condition.wingAngleOfAttackDeg.toFixed(2)}°</h3><p>Presentation derived from immutable analysis {analysis.analysisId} · exact local contour · panel field recalculated at the displayed incidence.</p></div>
         <label>Panel resolution<select aria-label="Section panel resolution" value={panelCount} onChange={(event) => setPanelCount(Number(event.target.value))}><option value="40">Low · 40</option><option value="80">Standard · 80</option><option value="120">High · 120</option><option value="160">Reference · 160</option></select></label>
       </header>
       <label className="station-scrubber section-station"><span>Linked 3D station</span><input type="range" min="0" max="1" step="0.001" value={selectedEta} onChange={(event) => onSelectEta(Number(event.target.value))} aria-valuetext={`eta ${selectedEta.toFixed(3)}`} /><strong>η {selectedEta.toFixed(3)}</strong></label>
