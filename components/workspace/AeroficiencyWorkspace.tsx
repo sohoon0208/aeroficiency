@@ -158,6 +158,7 @@ export function AeroficiencyWorkspace() {
   const [resetOpen, setResetOpen] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [sweepSelection, setSweepSelection] = useState<{ analysisId: string; alphaDeg: number } | null>(null);
+  const [sweepInteracting, setSweepInteracting] = useState(false);
   const resetDialogRef = useRef<HTMLElement>(null);
   const editorFocusRef = useRef<{ tab: EditorTab; ariaLabel: string } | null>(null);
 
@@ -476,9 +477,9 @@ export function AeroficiencyWorkspace() {
           </div>
           <div id="model-view-panel" role="tabpanel" aria-labelledby={`view-tab-${mode}`} className={`viewport-card ${mode === 'section' || mode === 'performance' ? 'section-mode' : ''} ${analysis && current && selectedSweepPoint ? 'sweep-active' : ''} ${presentation.focusedPanel === 'station' ? 'agent-focused' : ''}`}>
             <div className={`solver-strip ${runningForActive ? 'running' : immutableState.key}`}><span><i />{runningForActive ? 'SOLVER RUNNING' : immutableState.label}</span>{progressText && <span>{progressText}</span>}{metricAnalysis && <><span>Analysis {metricAnalysis.analysisId}</span><span>r{metricAnalysis.designRevision} · {metricAnalysis.fidelity}</span></>}</div>
-            {analysis && current && selectedSweepPoint && <AngleSweepScrubber key={`${analysis.analysisId}-${sweepPresentation?.source === 'snapped' ? `snap-${selectedSweepPoint.alphaDeg}` : 'smooth'}`} analysis={analysis} point={selectedSweepPoint} onSelect={(alphaDeg) => setSweepSelection({ analysisId: analysis.analysisId, alphaDeg })} />}
+            {analysis && current && selectedSweepPoint && <AngleSweepScrubber key={`${analysis.analysisId}-${sweepPresentation?.source === 'snapped' ? `snap-${selectedSweepPoint.alphaDeg}` : 'smooth'}`} analysis={analysis} point={selectedSweepPoint} onSelect={(alphaDeg) => setSweepSelection({ analysisId: analysis.analysisId, alphaDeg })} onInteractionChange={setSweepInteracting} />}
             {mode === 'section'
-              ? <SectionFlowLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} />
+              ? <SectionFlowLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} interactive={sweepInteracting} />
               : mode === 'performance'
                 ? <PerformanceLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} />
               : <><WingViewport design={activeDesign} baseline={activeDesign.kind === 'candidate' ? baseline : null} analysis={visualAnalysis} mode={mode} deformed={effectiveDeformed} selectedEta={selectedEta} yieldLimit={project.constraints.minYieldMargin} />

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AnalysisSnapshot, FlightCase, WingDesign } from '@/lib/domain/types';
 import {
   sampleSectionVelocityVectors,
@@ -9,8 +9,11 @@ import {
   traceSectionStreamlines,
   type Point2,
   type SectionPotentialFlowSolution,
+  type SectionStreamline,
+  type SectionVelocityVector,
+  type StreamlineTraceOptions,
 } from '@/lib/solver/panel2d';
-import { localAirfoilSection } from '@/lib/solver/airfoilSections';
+import { localAirfoilSection, type CanonicalAirfoil } from '@/lib/solver/airfoilSections';
 import { evaluateSectionPolar } from '@/lib/solver/polars';
 import { deriveSectionCondition } from '@/lib/visualization/sectionFlow';
 
@@ -20,7 +23,104 @@ function pointsAttribute(points: readonly Point2[], x: (value: number) => number
   return points.map((point) => `${x(point.x)},${z(point.z)}`).join(' ');
 }
 
-function SectionFlowField({ solution, sectionLabel }: { solution: SectionPotentialFlowSolution; sectionLabel: string }) {
+interface SectionFlowComputation {
+  scopeKey: string;
+  solution: SectionPotentialFlowSolution;
+  lines: SectionStreamline[];
+  vectors: SectionVelocityVector[];
+}
+
+interface SectionFlowWorkerRequest {
+  requestId: number;
+  scopeKey: string;
+  section: CanonicalAirfoil;
+  incidenceDeg: number;
+  freeStreamMps: number;
+  panelCount: number;
+  streamlineCount: number;
+  traceOptions?: StreamlineTraceOptions;
+}
+
+interface SectionFlowWorkerResponse extends Partial<SectionFlowComputation> {
+  requestId: number;
+  scopeKey: string;
+  error?: string;
+}
+
+function calculateSectionFlow(request: Omit<SectionFlowWorkerRequest, 'requestId'>): SectionFlowComputation {
+  const solution = solveAirfoilSectionPotentialFlow(request.section, request.incidenceDeg, request.freeStreamMps, request.panelCount);
+  return {
+    scopeKey: request.scopeKey,
+    solution,
+    lines: traceSectionStreamlines(solution, request.streamlineCount, request.traceOptions),
+    vectors: sampleSectionVelocityVectors(solution),
+  };
+}
+
+function useSectionFlowComputation(request: Omit<SectionFlowWorkerRequest, 'requestId'> | null) {
+  const [workerFailed, setWorkerFailed] = useState(false);
+  const [workerResult, setWorkerResult] = useState<SectionFlowComputation | null>(() => request ? calculateSectionFlow(request) : null);
+  const workerRef = useRef<Worker | null>(null);
+  const runningRef = useRef(false);
+  const queuedRequestRef = useRef<SectionFlowWorkerRequest | null>(null);
+  const latestRequestIdRef = useRef(0);
+  const dispatchRef = useRef<(next: SectionFlowWorkerRequest) => void>(() => undefined);
+  const useWorker = typeof Worker !== 'undefined' && !workerFailed;
+
+  const synchronousResult = useMemo(() => {
+    if (useWorker || !request) return null;
+    return calculateSectionFlow(request);
+  }, [request, useWorker]);
+
+  useEffect(() => {
+    if (!useWorker) return;
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL('./sectionFlow.worker.ts', import.meta.url), { type: 'module' });
+    } catch {
+      queueMicrotask(() => setWorkerFailed(true));
+      return;
+    }
+    workerRef.current = worker;
+    dispatchRef.current = (next) => {
+      runningRef.current = true;
+      worker.postMessage(next);
+    };
+    worker.onmessage = ({ data }: MessageEvent<SectionFlowWorkerResponse>) => {
+      runningRef.current = false;
+      if (data.error) {
+        setWorkerFailed(true);
+        return;
+      }
+      if (data.requestId === latestRequestIdRef.current && data.solution && data.lines && data.vectors) {
+        setWorkerResult({ scopeKey: data.scopeKey, solution: data.solution, lines: data.lines, vectors: data.vectors });
+      }
+      const queued = queuedRequestRef.current;
+      queuedRequestRef.current = null;
+      if (queued) dispatchRef.current(queued);
+    };
+    worker.onerror = () => setWorkerFailed(true);
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+      runningRef.current = false;
+      queuedRequestRef.current = null;
+    };
+  }, [useWorker]);
+
+  useEffect(() => {
+    if (!useWorker || !workerRef.current || !request) return;
+    const next = { ...request, requestId: latestRequestIdRef.current + 1 };
+    latestRequestIdRef.current = next.requestId;
+    if (runningRef.current) queuedRequestRef.current = next;
+    else dispatchRef.current(next);
+  }, [request, useWorker]);
+
+  if (synchronousResult) return synchronousResult;
+  return request && workerResult?.scopeKey === request.scopeKey ? workerResult : null;
+}
+
+function SectionFlowField({ solution, sectionLabel, lines, vectors, streamlineCount }: { solution: SectionPotentialFlowSolution; sectionLabel: string; lines: SectionStreamline[]; vectors: SectionVelocityVector[]; streamlineCount: number }) {
   const width = 660;
   const height = 270;
   const xMinimum = -0.58;
@@ -29,8 +129,6 @@ function SectionFlowField({ solution, sectionLabel }: { solution: SectionPotenti
   const zMaximum = 0.62;
   const x = (value: number) => 22 + (value - xMinimum) / (xMaximum - xMinimum) * (width - 42);
   const z = (value: number) => 12 + (zMaximum - value) / (zMaximum - zMinimum) * (height - 32);
-  const lines = useMemo(() => traceSectionStreamlines(solution), [solution]);
-  const vectors = useMemo(() => sampleSectionVelocityVectors(solution), [solution]);
   const outline = [...solution.panels.map((panel) => panel.start), solution.panels.at(-1)!.end]
     .map((point) => sectionPointToWindAxes(point, solution.incidenceDeg));
   const leadingEdge = sectionPointToWindAxes({ x: 0, z: 0 }, solution.incidenceDeg);
@@ -39,7 +137,7 @@ function SectionFlowField({ solution, sectionLabel }: { solution: SectionPotenti
   return (
     <figure className="section-figure flow-field-figure">
       <figcaption><strong>Inviscid attached-flow streamlines</strong><span>Wind axes · horizontal U∞ · adaptive integration</span></figcaption>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" data-reference-frame="wind" data-incidence-deg={solution.incidenceDeg.toFixed(6)} aria-label={`Wind-axis inviscid attached-flow streamlines and local velocity vectors around ${sectionLabel} with the airfoil at ${solution.incidenceDeg.toFixed(2)} degrees local incidence`}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" data-reference-frame="wind" data-incidence-deg={solution.incidenceDeg.toFixed(6)} data-panel-count={solution.panels.length} data-streamline-count={streamlineCount} aria-label={`Wind-axis inviscid attached-flow streamlines and local velocity vectors around ${sectionLabel} with the airfoil at ${solution.incidenceDeg.toFixed(2)} degrees local incidence`}>
         <defs><marker id="section-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="4" markerHeight="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" /></marker></defs>
         {[0, 0.5, 1].map((value) => <line key={`x-${value}`} className="section-grid" x1={x(value)} x2={x(value)} y1="10" y2={height - 20} />)}
         {[-0.4, 0, 0.4].map((value) => <line key={`z-${value}`} className="section-grid" x1="20" x2={width - 20} y1={z(value)} y2={z(value)} />)}
@@ -98,19 +196,35 @@ export function SectionFlowLab({
   flightCase,
   selectedEta,
   onSelectEta,
+  interactive = false,
 }: {
   design: WingDesign;
   analysis: AnalysisSnapshot | null;
   flightCase: FlightCase;
   selectedEta: number;
   onSelectEta: (eta: number) => void;
+  interactive?: boolean;
 }) {
   const [panelCount, setPanelCount] = useState(120);
+  const effectivePanelCount = interactive ? Math.min(panelCount, 40) : panelCount;
+  const streamlineCount = interactive ? 3 : 17;
+  const traceOptions = useMemo<StreamlineTraceOptions | undefined>(() => interactive ? { maxSteps: 160, maxStep: 0.022, minStep: 0.001 } : undefined, [interactive]);
   const condition = useMemo(() => analysis ? deriveSectionCondition(design, analysis, flightCase, selectedEta) : null, [analysis, design, flightCase, selectedEta]);
-  const section = useMemo(() => localAirfoilSection(design.geometry, selectedEta, Math.max(40, panelCount / 2)), [design.geometry, panelCount, selectedEta]);
-  const solution = useMemo(() => condition ? solveAirfoilSectionPotentialFlow(section, condition.localIncidenceDeg, flightCase.velocityMps, panelCount) : null, [condition, flightCase.velocityMps, panelCount, section]);
+  const section = useMemo(() => localAirfoilSection(design.geometry, selectedEta, Math.max(40, effectivePanelCount / 2)), [design.geometry, effectivePanelCount, selectedEta]);
+  const flowRequest = useMemo<Omit<SectionFlowWorkerRequest, 'requestId'> | null>(() => condition ? ({
+    scopeKey: `${condition.analysisId}:${condition.eta.toFixed(6)}:${section.label}`,
+    section,
+    incidenceDeg: condition.localIncidenceDeg,
+    freeStreamMps: flightCase.velocityMps,
+    panelCount: effectivePanelCount,
+    streamlineCount,
+    traceOptions,
+  }) : null, [condition, effectivePanelCount, flightCase.velocityMps, section, streamlineCount, traceOptions]);
+  const computation = useSectionFlowComputation(flowRequest);
+  const solution = computation?.solution ?? null;
   const polar = useMemo(() => condition ? evaluateSectionPolar(design.geometry, condition.eta, condition.reynoldsNumber, condition.localIncidenceDeg) : null, [condition, design.geometry]);
-  if (!analysis || !condition || !solution) return <div className="section-empty"><span>≈</span><p><strong>A current converged wing analysis is required.</strong><br />Run the main solver before opening the Section Flow Lab. Historical or stale results are never substituted.</p></div>;
+  if (!analysis || !condition) return <div className="section-empty"><span>≈</span><p><strong>A current converged wing analysis is required.</strong><br />Run the main solver before opening the Section Flow Lab. Historical or stale results are never substituted.</p></div>;
+  if (!solution || !computation) return <div className="section-empty"><span>≈</span><p><strong>Preparing the selected section flow.</strong></p></div>;
   return (
     <section className="section-flow-lab" aria-label="Two-dimensional section flow laboratory">
       <header className="section-lab-header">
@@ -127,7 +241,7 @@ export function SectionFlowLab({
         <span><b>{format(solution.momentCoefficientQuarterChord, 3)}</b>C<sub>m,c/4</sub> · nose-up +</span>
         {polar && <><span><b>{format(polar.cl, 3)}</b>coupled polar C<sub>l</sub></span><span><b>{format(polar.cd, 5)}</b>polar C<sub>d</sub> · {polar.state.replaceAll('_', ' ')}</span></>}
       </div>
-      <div className="section-visual-grid"><SectionFlowField solution={solution} sectionLabel={section.label} /><CpPlot solution={solution} sectionLabel={section.label} /></div>
+      <div className="section-visual-grid"><SectionFlowField solution={solution} sectionLabel={section.label} lines={computation.lines} vectors={computation.vectors} streamlineCount={streamlineCount} /><CpPlot solution={solution} sectionLabel={section.label} /></div>
       <div className="section-validation-strip"><span>Kutta residual <b>{Math.abs(solution.kuttaResidualMps).toExponential(2)} m/s</b></span><span>Panel source-flux residual <b>{Math.abs(solution.sourceFluxResidualM2ps).toExponential(2)} m²/s</b></span><span>Numerical inviscid C<sub>d</sub> residual <b>{solution.dragCoefficientNumerical.toExponential(2)}</b></span></div>
       <p className="scientific-warning"><strong>Two-dimensional inviscid attached potential-flow diagnostic.</strong> The wind-axis view keeps U∞ horizontal and rotates the section by its solved local incidence. Streamlines use adaptive integration through the panel solution&apos;s total-velocity field. This is not CFD: it cannot predict boundary layers, separation, stall, or a viscous wake, so attached lines at high AoA are not evidence that real flow remains attached. The diagnostic does not alter the main wing analysis; profile drag comes only from the disclosed SectionPolar source. Local incidence = selected wing AoA + geometric twist + elastic twist − signed induced-flow angle; positive induced angle means downwash.</p>
       <details className="section-data-table"><summary>Accessible Cp table</summary><div><table><caption>Surface pressure coefficients for analysis {condition.analysisId}</caption><thead><tr><th scope="col">Surface</th><th scope="col">x/c</th><th scope="col">z/c</th><th scope="col">Cp</th><th scope="col">Vt/V∞</th></tr></thead><tbody>{solution.surface.map((point, index) => <tr key={`${point.surface}-${index}`}><th scope="row">{point.surface}</th><td>{point.xOverC.toFixed(4)}</td><td>{point.zOverC.toFixed(4)}</td><td>{point.cp.toFixed(5)}</td><td>{point.tangentialVelocityRatio.toFixed(5)}</td></tr>)}</tbody></table></div></details>
