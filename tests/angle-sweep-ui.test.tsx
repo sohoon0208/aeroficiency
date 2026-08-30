@@ -61,6 +61,8 @@ describe('interactive angle-of-attack sweep', () => {
     expect(slider).toHaveAttribute('step', '0.5');
     expect(screen.getByText('29/29 solved')).toBeVisible();
     expect(screen.getByText(/Official candidate checks remain tied/)).toBeVisible();
+    fireEvent.input(slider, { target: { value: '-2.5' } });
+    expect(onSelect).toHaveBeenCalledWith(-2.5);
     fireEvent.change(slider, { target: { value: '3.5' } });
     expect(onSelect).toHaveBeenCalledWith(3.5);
   });
