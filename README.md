@@ -18,7 +18,7 @@ Release identity: app `0.5.0`, solver `aeroficiency-0.5.0`, tool schema `aerofic
 
 The V4/V5 implementation is complete locally:
 
-- V4: two to six user-positioned airfoil stations, supported NACA four-digit or imported coordinate definitions, local camber/thickness interpolation, local zero-lift angle and quarter-chord moment, spanwise 3D loft, and local wing-box geometry.
+- V4: two to six user-positioned airfoil stations; arbitrary supported NACA four-digit sections; a built-in Clark Y, Selig S, Selig/Giguère SG, and NASA SC(2) geometry catalogue; imported coordinate definitions; local camber/thickness interpolation; local zero-lift angle and quarter-chord moment; spanwise 3D loft; and local wing-box geometry.
 - V5: generated attached-flow section polars or bounded user-imported station/Reynolds tables, nonlinear section-polar lifting-line closure, local Reynolds number, profile drag, combined wing drag, estimated wing L/D, range diagnostics, and polar-linked torsional loading.
 - UI: separate Planform/Airfoils/Structure/Case editors; five linked engineering views; and Overview/Checks/Compare/Log result sections.
 
@@ -143,7 +143,7 @@ The hosting scaffold uses ChatGPT Sites with Vinext/Vite and a Cloudflare Worker
 - SI units; `+x` aft, `+y` starboard, `+z` up.
 - Symmetric, zero-sweep, zero-dihedral trapezoidal planform.
 - Two to six ordered airfoil stations at user-set normalized semispan locations.
-- NACA four-digit sections or bounded imported contours, normalized and cosine-resampled.
+- NACA four-digit sections, ten attributed built-in Clark/S/SG/SC(2) profiles, or bounded imported contours, normalized and cosine-resampled.
 - Local camber/thickness blending drives the wing loft, wing-box walls, zero-lift angle, and quarter-chord moment.
 - Full-wing cosine-spaced, one-row horseshoe lattice with nonlinear SectionPolar closure and target-lift trim.
 - Local Reynolds interpolation from generated or user-supplied polars; spanwise profile-drag integration.

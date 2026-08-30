@@ -46,6 +46,28 @@ afterEach(() => {
 });
 
 describe('editable Baseline workflow', () => {
+  it('renames the Baseline and a candidate directly from their name controls', async () => {
+    render(<AeroficiencyWorkspace />);
+    const initial = useProjectStore.getState().project;
+    const baselineId = initial.activeDesignId;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Baseline' }));
+    const baselineName = screen.getByRole('textbox', { name: 'Rename Baseline' });
+    fireEvent.change(baselineName, { target: { value: 'Thick-root reference' } });
+    fireEvent.blur(baselineName);
+    await waitFor(() => expect(useProjectStore.getState().project.designs[baselineId]).toMatchObject({ label: 'Thick-root reference', revision: 1 }));
+
+    fireEvent.click(screen.getByRole('button', { name: '＋ Create candidate variant' }));
+    const candidate = Object.values(useProjectStore.getState().project.designs).find((design) => design.kind === 'candidate');
+    if (!candidate) throw new Error('Candidate was not created.');
+    fireEvent.click(screen.getByRole('button', { name: `Rename ${candidate.label}` }));
+    const candidateName = screen.getByRole('textbox', { name: `Rename ${candidate.label}` });
+    fireEvent.change(candidateName, { target: { value: 'Thin-tip study' } });
+    fireEvent.keyDown(candidateName, { key: 'Enter' });
+    await waitFor(() => expect(useProjectStore.getState().project.designs[candidate.designId]).toMatchObject({ label: 'Thin-tip study', revision: 1 }));
+    expect(screen.getByRole('button', { name: 'Rename Thin-tip study' })).toBeVisible();
+  });
+
   it('edits the initial Baseline, requires one candidate for comparison, and promotes that candidate without deleting either design', async () => {
     render(<AeroficiencyWorkspace />);
     const initial = useProjectStore.getState().project;

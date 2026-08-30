@@ -6,6 +6,7 @@ import {
   createCandidateVariant,
   analysisIsCurrent,
   preflightAnalysisRun,
+  renameDesign,
   selectAnalysis,
   selectDesign,
   selectEta,
@@ -94,6 +95,7 @@ export interface ProjectStore {
   selectDesign: (designId: DesignId) => void;
   selectEta: (eta: number) => void;
   createCandidate: (sourceDesignId: DesignId, label: string, actor: Actor, idempotencyKey?: string, expectedRevision?: number, expectedProjectRevision?: number) => ReturnType<typeof createCandidateVariant>['result'];
+  renameDesign: (designId: DesignId, label: string, actor: Actor, idempotencyKey?: string, expectedRevision?: number, expectedProjectRevision?: number) => ReturnType<typeof renameDesign>['result'];
   setBaseline: (designId: DesignId, actor: Actor, idempotencyKey?: string, expectedRevision?: number, expectedProjectRevision?: number) => ReturnType<typeof setBaselineDesign>['result'];
   updateGeometry: (designId: DesignId, patch: Partial<WingGeometry>, actor: Actor, idempotencyKey?: string, expectedRevision?: number) => ReturnType<typeof updateWingGeometry>['result'];
   updateStructure: (designId: DesignId, patch: Partial<WingStructure>, actor: Actor, idempotencyKey?: string, expectedRevision?: number) => ReturnType<typeof updateWingStructure>['result'];
@@ -234,6 +236,34 @@ export const useProjectStore = create<ProjectStore>()((set, get) => ({
         replayedDesignNextAction(state, transition.result.data.designId, transition.result.data.revision),
       ),
     });
+    return transition.result;
+  },
+  renameDesign: (designId, label, actor, idempotencyKey = createIdempotencyKey(), expectedRevision, expectedProjectRevision) => {
+    const state = get().project;
+    const design = state.designs[designId];
+    const transition = renameDesign(state, {
+      designId,
+      expectedProjectRevision: expectedProjectRevision ?? state.projectRevision,
+      expectedDesignRevision: expectedRevision ?? design?.revision ?? -1,
+      label,
+      idempotencyKey,
+    }, actor);
+    if (transition.result.ok && transition.result.data.outcome === 'unchanged') {
+      set(transition.state !== state ? { project: transition.state, commandNotice: null } : { commandNotice: null });
+    } else if (transition.state !== state) {
+      set({ project: transition.state, commandNotice: null });
+    } else if (!transition.result.ok) {
+      set({ commandNotice: notice(transition.result, actor, designId) });
+    } else if (transition.result.replayed) {
+      set({
+        commandNotice: replayNotice(
+          actor,
+          designId,
+          `Original name change replayed for design ${designId}; no duplicate activity was created.`,
+          replayedDesignNextAction(state, designId, transition.result.data.designRevision),
+        ),
+      });
+    }
     return transition.result;
   },
   setBaseline: (designId, actor, idempotencyKey = createIdempotencyKey(), expectedRevision, expectedProjectRevision) => {

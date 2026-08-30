@@ -27,6 +27,26 @@ describe('case and configured-check editor', () => {
 });
 
 describe('V4/V5 airfoil and polar editor', () => {
+  it('offers named Clark, S, SG, and NASA SC(2) profiles and applies their validated coordinates', () => {
+    const design = createBaselineDesign();
+    const onUpdate = vi.fn(successfulUpdate);
+    render(<AirfoilEditor design={design} editable changedFields={[]} changedActor={null} onUpdate={onUpdate} />);
+
+    const profile = screen.getByRole('combobox', { name: 'Airfoil profile at eta 0.000' });
+    expect(within(profile).getByRole('option', { name: 'Clark Y' })).toBeInTheDocument();
+    expect(within(profile).getByRole('option', { name: 'S1223' })).toBeInTheDocument();
+    expect(within(profile).getByRole('option', { name: 'SG6043' })).toBeInTheDocument();
+    expect(within(profile).getByRole('option', { name: 'NASA SC(2)-0412' })).toBeInTheDocument();
+    fireEvent.change(profile, { target: { value: 'sg6043' } });
+
+    const patch = onUpdate.mock.calls[0][0];
+    if (!patch.airfoilStations) throw new Error('Expected an airfoil-station patch.');
+    const applied = patch.airfoilStations[0].airfoil;
+    expect(applied).toMatchObject({ kind: 'COORDINATES', name: 'SG6043', source: expect.stringContaining('UIUC Airfoil Data Site') });
+    if (applied.kind !== 'COORDINATES') throw new Error('Expected catalogue coordinates.');
+    expect(applied.points).toHaveLength(81);
+  });
+
   it('does not submit an unchanged NACA field on blur', () => {
     const design = createBaselineDesign();
     const onUpdate = vi.fn(successfulUpdate);

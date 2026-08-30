@@ -111,6 +111,24 @@ export interface CreateCandidateResult {
   activityId: string;
 }
 
+export interface RenameDesignInput {
+  designId: DesignId;
+  expectedProjectRevision: number;
+  expectedDesignRevision: number;
+  label: string;
+  idempotencyKey: string;
+}
+
+export interface RenameDesignResult {
+  outcome: 'changed' | 'unchanged';
+  designId: DesignId;
+  designRevision: number;
+  previousLabel: string;
+  label: string;
+  projectRevision: number;
+  activityId: string | null;
+}
+
 export interface SetBaselineInput {
   designId: DesignId;
   expectedProjectRevision: number;
@@ -198,6 +216,76 @@ export function createCandidateVariant(
     timestamp: now,
   });
   recordIdempotency(next, 'create_candidate_variant', input.idempotencyKey, input, data, now);
+  return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
+}
+
+export function renameDesign(
+  state: ProjectState,
+  input: RenameDesignInput,
+  actor: Actor,
+  runtime: CommandRuntime = defaultRuntime,
+): StateTransition<RenameDesignResult> {
+  const replay = idempotentReplay<RenameDesignResult>(state, 'rename_design', input.idempotencyKey, input);
+  if (replay) return { state, result: replay };
+  const design = state.designs[input.designId];
+  if (!design) return { state, result: fail('DESIGN_NOT_FOUND', 'The requested design does not exist.', 'Read the current design state and retry with an explicit design ID.') };
+  if (state.projectRevision !== input.expectedProjectRevision || design.revision !== input.expectedDesignRevision) {
+    return {
+      state,
+      result: fail('REVISION_CONFLICT', 'The project or design advanced before the name changed.', 'Read the current state and retry the name change.', {
+        retryable: true,
+        current: { projectRevision: state.projectRevision, designRevision: design.revision, flightCaseRevision: state.flightCase.revision, constraintsRevision: state.constraints.revision },
+      }),
+    };
+  }
+  const label = input.label.trim();
+  if (!label || label.length > 48 || /[\u0000-\u001f\u007f]/.test(label)) {
+    return { state, result: fail('VALIDATION_ERROR', 'Design name must contain 1–48 visible characters.', 'Choose a short visible design name and retry.', { issues: [{ path: 'label', reason: 'Use 1–48 visible characters.' }] }) };
+  }
+  const now = runtime.now();
+  if (label === design.label) {
+    const next = cloneState(state);
+    const data: RenameDesignResult = {
+      outcome: 'unchanged',
+      designId: design.designId,
+      designRevision: design.revision,
+      previousLabel: design.label,
+      label: design.label,
+      projectRevision: state.projectRevision,
+      activityId: null,
+    };
+    recordIdempotency(next, 'rename_design', input.idempotencyKey, input, data, now);
+    return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
+  }
+  const next = cloneState(state);
+  const nextDesign = next.designs[input.designId];
+  const activityId = runtime.createId('act');
+  nextDesign.label = label;
+  nextDesign.updatedAt = now;
+  next.projectRevision += 1;
+  addActivity(next, {
+    activityId,
+    actor,
+    operation: 'rename_design',
+    targetDesignId: nextDesign.designId,
+    fromRevision: nextDesign.revision,
+    toRevision: nextDesign.revision,
+    summary: `${design.label} renamed to ${label}. Solver inputs and analysis freshness are unchanged.`,
+    changedFields: { label: { from: design.label, to: label } },
+    analysisId: nextDesign.latestAnalysisId,
+    status: 'success',
+    timestamp: now,
+  });
+  const data: RenameDesignResult = {
+    outcome: 'changed',
+    designId: nextDesign.designId,
+    designRevision: nextDesign.revision,
+    previousLabel: design.label,
+    label,
+    projectRevision: next.projectRevision,
+    activityId,
+  };
+  recordIdempotency(next, 'rename_design', input.idempotencyKey, input, data, now);
   return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
 }
 

@@ -11,7 +11,7 @@ import { analysisIsCurrent } from '@/lib/domain/commands';
 import { createIdempotencyKey } from '@/lib/domain/ids';
 import { MODEL_WARNINGS } from '@/lib/domain/limits';
 import { interpolateStationValue } from '@/lib/domain/stations';
-import type { AnalysisSnapshot, WingGeometry, WingStructure } from '@/lib/domain/types';
+import type { AnalysisSnapshot, DomainResult, WingDesign, WingGeometry, WingStructure } from '@/lib/domain/types';
 import { configuredCheckSummary, immutableResultState, presentedConstraints, visibleRunOutcome } from '@/lib/presentation/status';
 import { buildCandidateVerdict, classifyDragChange, currentSelectedCandidateAnalysis } from '@/lib/presentation/verdict';
 import { RELEASE_IDENTITY } from '@/lib/release';
@@ -97,6 +97,46 @@ function commandNoticeHeading(notice: CommandNotice) {
     case 'ANALYSIS_FAILED': return 'Analysis failed';
     default: return 'Command rejected safely';
   }
+}
+
+function DesignVariantItem({ design, active, running, onSelect, onRename }: { design: WingDesign; active: boolean; running: boolean; onSelect: () => void; onRename: (label: string) => DomainResult<unknown> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(design.label);
+  const [error, setError] = useState('');
+  const errorId = `rename-error-${design.designId}`;
+  const beginRename = () => {
+    if (running) return;
+    onSelect();
+    setDraft(design.label);
+    setError('');
+    setEditing(true);
+  };
+  const commitRename = () => {
+    const next = draft.trim();
+    if (next === design.label) {
+      setDraft(design.label);
+      setError('');
+      setEditing(false);
+      return;
+    }
+    const result = onRename(next);
+    if (!result.ok) {
+      setError(result.error.issues?.[0]?.reason ?? result.error.message);
+      return;
+    }
+    setDraft(next);
+    setError('');
+    setEditing(false);
+  };
+  return (
+    <article className={`variant-item ${design.kind} ${active ? 'active' : ''} ${error ? 'has-error' : ''}`}>
+      <button className="variant-select" type="button" aria-label={`Select ${design.label}`} onClick={onSelect}><span aria-hidden="true">{design.kind === 'baseline' ? '◆' : '◇'}</span><p><small>Revision {design.revision} · {design.kind === 'baseline' ? 'Baseline reference · Editable' : 'Candidate · Editable'}</small></p>{active && <b>ACTIVE</b>}</button>
+      <div className="variant-name-control">{editing
+        ? <input aria-label={`Rename ${design.label}`} aria-describedby={error ? errorId : undefined} aria-invalid={Boolean(error)} autoFocus value={draft} maxLength={48} disabled={running} onFocus={(event) => event.currentTarget.select()} onChange={(event) => { setDraft(event.target.value); setError(''); }} onBlur={commitRename} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } else if (event.key === 'Escape') { event.preventDefault(); setDraft(design.label); setError(''); setEditing(false); } }} />
+        : <button className="variant-name-button" type="button" aria-label={`Rename ${design.label}`} title={running ? 'Finish the current analysis before renaming.' : 'Click to rename this design'} disabled={running} onClick={beginRename}><strong>{design.label}</strong></button>}</div>
+      {error && <small id={errorId} className="variant-name-error" role="alert">{error}</small>}
+    </article>
+  );
 }
 
 /** Shared human-and-agent engineering workspace. */
@@ -386,7 +426,7 @@ export function AeroficiencyWorkspace() {
 
         <aside id="design-workspace-panel" className={`side-panel design-panel mobile-${mobileView}`} aria-label="Design definition">
           <div className="panel-title"><div><span className="eyebrow">DESIGN DEFINITION</span><h1>{activeDesign.label}</h1></div><span className={`design-badge ${activeDesign.kind}`}>{activeDesign.kind === 'baseline' ? `BASELINE · r${activeDesign.revision}` : `CANDIDATE · r${activeDesign.revision}`}</span></div>
-          <div className="variant-list" aria-label="Design variants">{Object.values(project.designs).map((design) => <button key={design.designId} type="button" className={`${design.kind} ${design.designId === activeDesign.designId ? 'active' : ''}`} onClick={() => store().selectDesign(design.designId)}><span aria-hidden="true">{design.kind === 'baseline' ? '◆' : '◇'}</span><p><strong>{design.label}</strong><small>Revision {design.revision} · {design.kind === 'baseline' ? 'Baseline reference · Editable' : 'Candidate · Editable'}</small></p>{design.designId === activeDesign.designId && <b>ACTIVE</b>}</button>)}</div>
+          <div className="variant-list" aria-label="Design variants">{Object.values(project.designs).map((design) => <DesignVariantItem key={design.designId} design={design} active={design.designId === activeDesign.designId} running={runningGlobally} onSelect={() => store().selectDesign(design.designId)} onRename={(label) => store().renameDesign(design.designId, label, 'human')} />)}</div>
           <button className="candidate-button" type="button" onClick={createCandidate}>＋ Create candidate variant</button>
           {activeDesign.kind === 'candidate' && <button className="baseline-button" type="button" disabled={runningGlobally} onClick={setActiveBaseline}>◆ Set active design as Baseline</button>}
           <div className="tab-strip" role="tablist" aria-label="Design editors">{([['geometry', 'Planform'], ['airfoils', 'Airfoils'], ['structure', 'Structure'], ['case', 'Case']] as const).map(([key, label]) => <button key={key} id={`tab-${key}`} type="button" role="tab" tabIndex={editorTab === key ? 0 : -1} aria-selected={editorTab === key} aria-controls={`panel-${key}`} className={editorTab === key ? 'active' : ''} onClick={() => setEditorTab(key)} onKeyDown={(event) => moveTabFocus(event, ['geometry', 'airfoils', 'structure', 'case'] as const, editorTab, setEditorTab, 'tab')}>{label}</button>)}</div>

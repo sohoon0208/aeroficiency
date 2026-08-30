@@ -3,6 +3,7 @@ import {
   commitAnalysisSnapshot,
   createCandidateVariant,
   preflightAnalysisRun,
+  renameDesign,
   setBaselineDesign,
   updateWingGeometry,
   updateWingStructure,
@@ -42,6 +43,29 @@ function branchCandidate(state: ProjectState, label = 'Candidate A') {
 }
 
 describe('domain mutation and snapshot boundaries', () => {
+  it('renames design metadata without staling or revising its solver inputs', () => {
+    const initial = createDefaultProject();
+    const baseline = initial.designs[initial.activeDesignId];
+    const request = runRequest(initial);
+    const committed = commitAnalysisSnapshot(initial, request, buildAnalysisSnapshot(initial, baseline, 'fast'), 'solver');
+    expect(committed.result.ok).toBe(true);
+    if (!committed.result.ok) return;
+    const current = committed.state.designs[baseline.designId];
+    const renamed = renameDesign(committed.state, {
+      designId: current.designId,
+      expectedProjectRevision: committed.state.projectRevision,
+      expectedDesignRevision: current.revision,
+      label: 'Reference thick-root wing',
+      idempotencyKey: createIdempotencyKey(),
+    }, 'human');
+    expect(renamed.result.ok).toBe(true);
+    if (!renamed.result.ok) return;
+    expect(renamed.state.designs[current.designId]).toMatchObject({ label: 'Reference thick-root wing', revision: current.revision, latestAnalysisId: current.latestAnalysisId });
+    expect(renamed.state.projectRevision).toBe(committed.state.projectRevision + 1);
+    expect(designAnalysisFreshness(renamed.state, renamed.state.designs[current.designId])).toBe('current');
+    expect(renamed.state.activities[0]).toMatchObject({ operation: 'rename_design', fromRevision: current.revision, toRevision: current.revision });
+  });
+
   it('rejects nonfinite structure inputs and unknown patch fields', () => {
     const state = createDefaultProject();
     const baseline = state.designs[state.activeDesignId];

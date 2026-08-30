@@ -157,7 +157,7 @@ function fromCoordinates(definition: Extract<AirfoilDefinition, { kind: 'COORDIN
   const x = cosineGrid(intervals);
   const upperZ = x.map((value) => interpolateCurve(upperCurve, value));
   const lowerZ = x.map((value) => interpolateCurve(lowerCurve, value));
-  if (upperZ.some((value, index) => index > 0 && index < x.length - 1 && value - lowerZ[index] <= 1e-5)) {
+  if (upperZ.some((value, index) => x[index] >= 0.005 && x[index] <= 0.995 && value - lowerZ[index] <= 1e-5)) {
     throw new Error('Imported airfoil must retain positive thickness away from the leading and trailing edges.');
   }
   const camber = upperZ.map((value, index) => (value + lowerZ[index]) / 2);
