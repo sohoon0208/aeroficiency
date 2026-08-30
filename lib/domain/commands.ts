@@ -1,8 +1,10 @@
 import { ALUMINUM_2024_T3, MAX_ACTIVITY_EVENTS, MAX_ANALYSES, MAX_DESIGNS, MAX_IDEMPOTENCY_RECORDS, MODEL_WARNINGS, SOLVER_SETTINGS } from './limits';
 import { evaluateDesignConstraints } from './constraints';
-import { createEntityId, sha256, stableStringify } from './ids';
-import { designAnalysisFreshness, designInputFingerprint, validateDesign, validateFlightCase } from './validation';
+import { createEntityId, ENTITY_ID_LENGTH, sha256, stableStringify } from './ids';
+import { designAnalysisFreshness, designInputFingerprint, requiredTargetLiftCoefficient, validateDesign, validateFlightCase } from './validation';
 import { expectedStructuralMassKg } from '../solver/wingBox';
+import { localAirfoilSection } from '../solver/airfoilSections';
+import { trustDomainFailure } from './publicErrors';
 import type {
   ActivityEvent,
   ActivityId,
@@ -14,6 +16,7 @@ import type {
   DomainResult,
   ProjectState,
   SolverFidelity,
+  WingDesign,
   WingGeometry,
   WingStructure,
 } from './types';
@@ -34,7 +37,7 @@ export interface StateTransition<T> {
 }
 
 function fail(code: DomainFailure['error']['code'], message: string, safeNextAction: string, options: Partial<DomainFailure['error']> = {}): DomainFailure {
-  return { ok: false, error: { code, message, retryable: false, safeNextAction, ...options } };
+  return trustDomainFailure({ ok: false, error: { code, message, retryable: false, safeNextAction, ...options } });
 }
 
 function ledgerKey(tool: string, idempotencyKey: string) {
@@ -52,8 +55,8 @@ export function idempotentReplay<T>(state: ProjectState, tool: string, idempoten
   let hash: string;
   try {
     hash = requestHash(request);
-  } catch (error) {
-    return fail('VALIDATION_ERROR', error instanceof Error ? error.message : 'The request cannot be canonicalized.', 'Remove non-finite, undefined, cyclic, or unsupported values and retry.');
+  } catch {
+    return fail('VALIDATION_ERROR', 'The request cannot be canonicalized safely.', 'Remove non-finite, undefined, cyclic, or unsupported values and retry.');
   }
   if (!record) return null;
   if (record.requestHash !== hash) {
@@ -90,6 +93,7 @@ function cloneState(state: ProjectState) {
 
 export interface CreateCandidateInput {
   sourceDesignId: DesignId;
+  expectedProjectRevision: number;
   expectedSourceDesignRevision: number;
   candidateLabel: string;
   idempotencyKey: string;
@@ -106,6 +110,23 @@ export interface CreateCandidateResult {
   activityId: string;
 }
 
+export interface SetBaselineInput {
+  designId: DesignId;
+  expectedProjectRevision: number;
+  expectedDesignRevision: number;
+  idempotencyKey: string;
+}
+
+export interface SetBaselineResult {
+  baselineDesignId: DesignId;
+  baselineDesignRevision: number;
+  previousBaselineDesignId: DesignId;
+  previousBaselineDesignRevision: number;
+  projectRevision: number;
+  invalidatedAnalysisIds: AnalysisId[];
+  activityId: string;
+}
+
 export function createCandidateVariant(
   state: ProjectState,
   input: CreateCandidateInput,
@@ -116,12 +137,12 @@ export function createCandidateVariant(
   if (replay) return { state, result: replay };
   const source = state.designs[input.sourceDesignId];
   if (!source) return { state, result: fail('DESIGN_NOT_FOUND', 'The source design does not exist.', 'Read the current design state and retry with an explicit design ID.') };
-  if (source.revision !== input.expectedSourceDesignRevision) {
+  if (state.projectRevision !== input.expectedProjectRevision || source.revision !== input.expectedSourceDesignRevision) {
     return {
       state,
-      result: fail('REVISION_CONFLICT', `The source advanced from revision ${input.expectedSourceDesignRevision} to ${source.revision}.`, 'Read the current state and retry with the returned revision.', {
+      result: fail('REVISION_CONFLICT', 'The project or source design advanced before candidate creation.', 'Read the current state and retry with the returned project and design revisions and a new UUID.', {
         retryable: true,
-        current: { designRevision: source.revision, flightCaseRevision: state.flightCase.revision, constraintsRevision: state.constraints.revision },
+        current: { projectRevision: state.projectRevision, designRevision: source.revision, flightCaseRevision: state.flightCase.revision, constraintsRevision: state.constraints.revision },
       }),
     };
   }
@@ -178,6 +199,83 @@ export function createCandidateVariant(
   return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
 }
 
+export function setBaselineDesign(
+  state: ProjectState,
+  input: SetBaselineInput,
+  actor: Actor,
+  runtime: CommandRuntime = defaultRuntime,
+): StateTransition<SetBaselineResult> {
+  const replay = idempotentReplay<SetBaselineResult>(state, 'set_baseline_design', input.idempotencyKey, input);
+  if (replay) return { state, result: replay };
+  const target = state.designs[input.designId];
+  if (!target) return { state, result: fail('DESIGN_NOT_FOUND', 'The requested design does not exist.', 'Read the current design state and retry with an explicit design ID.') };
+  const baselines = Object.values(state.designs).filter((design) => design.kind === 'baseline');
+  if (baselines.length !== 1) {
+    return { state, result: fail('VALIDATION_ERROR', 'The workspace does not contain exactly one Baseline reference.', 'Reset the reference case before changing the Baseline role.') };
+  }
+  const previousBaseline = baselines[0];
+  if (target.kind === 'baseline') {
+    return { state, result: fail('VALIDATION_ERROR', `${target.label} is already the Baseline reference.`, 'Select a candidate design before changing the Baseline role.') };
+  }
+  if (state.projectRevision !== input.expectedProjectRevision || target.revision !== input.expectedDesignRevision) {
+    return {
+      state,
+      result: fail('REVISION_CONFLICT', 'The project or selected candidate advanced before the Baseline role changed.', 'Read the current state and retry with the returned project and design revisions and a new UUID.', {
+        retryable: true,
+        current: { projectRevision: state.projectRevision, designRevision: target.revision, flightCaseRevision: state.flightCase.revision, constraintsRevision: state.constraints.revision },
+      }),
+    };
+  }
+
+  const next = cloneState(state);
+  const now = runtime.now();
+  const activityId = runtime.createId('act');
+  const nextTarget = next.designs[target.designId];
+  const nextPreviousBaseline = next.designs[previousBaseline.designId];
+  const invalidatedAnalysisIds = Object.values(next.designs)
+    .map((design) => design.latestAnalysisId)
+    .filter((id): id is AnalysisId => Boolean(id));
+
+  nextTarget.kind = 'baseline';
+  nextTarget.revision += 1;
+  nextTarget.updatedAt = now;
+  nextPreviousBaseline.kind = 'candidate';
+  nextPreviousBaseline.revision += 1;
+  nextPreviousBaseline.updatedAt = now;
+  next.projectRevision += 1;
+  next.activeDesignId = nextTarget.designId;
+  next.selectedAnalysisId = nextTarget.latestAnalysisId;
+
+  addActivity(next, {
+    activityId,
+    actor,
+    operation: 'set_baseline_design',
+    targetDesignId: nextTarget.designId,
+    fromRevision: target.revision,
+    toRevision: nextTarget.revision,
+    summary: `${nextTarget.label} is now the Baseline reference; ${nextPreviousBaseline.label} remains available as a candidate. Dependent comparisons are stale.`,
+    changedFields: {
+      designRole: { from: 'candidate', to: 'baseline' },
+      previousBaselineRole: { from: 'baseline', to: 'candidate' },
+    },
+    analysisId: nextTarget.latestAnalysisId,
+    status: 'success',
+    timestamp: now,
+  });
+
+  const data: SetBaselineResult = {
+    baselineDesignId: nextTarget.designId,
+    baselineDesignRevision: nextTarget.revision,
+    previousBaselineDesignId: nextPreviousBaseline.designId,
+    previousBaselineDesignRevision: nextPreviousBaseline.revision,
+    projectRevision: next.projectRevision,
+    invalidatedAnalysisIds,
+    activityId,
+  };
+  recordIdempotency(next, 'set_baseline_design', input.idempotencyKey, input, data, now);
+  return { state: next, result: { ok: true, replayed: false, data: structuredClone(data) } };
+}
+
 export interface UpdateDesignInput<TPatch> {
   designId: DesignId;
   expectedDesignRevision: number;
@@ -192,6 +290,7 @@ export interface UpdateDesignResult {
   projectRevision: number;
   changedFields: Record<string, { from: number | string; to: number | string; unit?: string }>;
   invalidatedAnalysisId: AnalysisId | null;
+  invalidatedComparisonDesignIds: DesignId[];
   analysisFreshness: 'stale' | 'unavailable';
   activityId: string | null;
 }
@@ -209,9 +308,6 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
   if (replay) return { state, result: replay };
   const design = state.designs[input.designId];
   if (!design) return { state, result: fail('DESIGN_NOT_FOUND', 'The requested design does not exist.', 'Read the current design state and retry with an explicit design ID.') };
-  if (design.kind === 'baseline') {
-    return { state, result: fail('BASELINE_PROTECTED', 'The baseline is protected and was not changed.', 'Create a candidate variant, then apply the update to that candidate.') };
-  }
   if (design.revision !== input.expectedDesignRevision) {
     return {
       state,
@@ -230,7 +326,21 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
   if (unsupported.length) {
     return { state, result: fail('VALIDATION_ERROR', 'The patch contains unsupported fields.', 'Remove every field not listed in the tool schema and retry.', { issues: unsupported.slice(0, 6).map((key) => ({ path: `patch.${key}`, reason: 'Unknown field.' })) }) };
   }
-  const candidatePart = { ...currentPart, ...input.patch } as TPart;
+  const candidatePart = { ...structuredClone(currentPart), ...structuredClone(input.patch) } as TPart;
+  if (part === 'geometry') {
+    const geometry = candidatePart as WingGeometry;
+    const geometryPatch = input.patch as Partial<WingGeometry>;
+    if (geometryPatch.nacaCode !== undefined && geometryPatch.airfoilStations === undefined) {
+      geometry.airfoilStations = geometry.airfoilStations.map((station) => ({
+        ...station,
+        airfoil: { kind: 'NACA4', code: geometry.nacaCode },
+      }));
+    }
+    const rootAirfoil = geometry.airfoilStations[0]?.airfoil;
+    if (geometryPatch.airfoilStations !== undefined && geometryPatch.nacaCode === undefined && rootAirfoil?.kind === 'NACA4') {
+      geometry.nacaCode = rootAirfoil.code;
+    }
+  }
   const candidateGeometry = part === 'geometry' ? candidatePart as WingGeometry : design.geometry;
   const candidateStructure = part === 'structure' ? candidatePart as WingStructure : design.structure;
   const issues = validateDesign(candidateGeometry, candidateStructure);
@@ -239,9 +349,20 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
   }
   const changedFields: UpdateDesignResult['changedFields'] = {};
   for (const key of keys) {
-    const from = currentPart[key as keyof TPart] as number | string;
-    const to = candidatePart[key as keyof TPart] as number | string;
-    if (from !== to) changedFields[`${part}.${key}`] = { from, to, unit: units[key] };
+    const fromValue = currentPart[key as keyof TPart];
+    const toValue = candidatePart[key as keyof TPart];
+    if (stableStringify(fromValue) !== stableStringify(toValue)) {
+      const summarizeValue = (value: unknown) => {
+        if (typeof value === 'number' || typeof value === 'string') return value;
+        if (key === 'airfoilStations' && Array.isArray(value)) return `${value.length} station${value.length === 1 ? '' : 's'}`;
+        if (key === 'polarModel' && isRecord(value)) {
+          const tables = Array.isArray(value.tables) ? value.tables.length : 0;
+          return value.kind === 'USER_TABLES' ? `${tables} user polar table${tables === 1 ? '' : 's'}` : 'analytic attached-flow estimate';
+        }
+        return 'configured value';
+      };
+      changedFields[`${part}.${key}`] = { from: summarizeValue(fromValue), to: summarizeValue(toValue), unit: units[key] };
+    }
   }
   if (Object.keys(changedFields).length === 0) {
     return {
@@ -259,6 +380,9 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
   const nextDesign = next.designs[input.designId];
   const previousDesignRevision = nextDesign.revision;
   const invalidatedAnalysisId = nextDesign.latestAnalysisId;
+  const invalidatedComparisonDesignIds = design.kind === 'baseline'
+    ? Object.values(next.designs).filter((item) => item.kind === 'candidate' && item.latestAnalysisId).map((item) => item.designId)
+    : [];
   let activityId: ActivityId | null = null;
   activityId = runtime.createId('act');
   nextDesign[part] = candidatePart as WingGeometry & WingStructure;
@@ -274,7 +398,7 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
     targetDesignId: nextDesign.designId,
     fromRevision: previousDesignRevision,
     toRevision: nextDesign.revision,
-    summary: `${Object.keys(changedFields).length} ${part} field${Object.keys(changedFields).length === 1 ? '' : 's'} updated. Analysis is stale.`,
+    summary: `${Object.keys(changedFields).length} ${part} field${Object.keys(changedFields).length === 1 ? '' : 's'} updated. ${design.kind === 'baseline' ? 'Baseline analysis and dependent candidate comparisons are stale.' : 'Analysis is stale.'}`,
     changedFields,
     analysisId: invalidatedAnalysisId,
     status: 'success',
@@ -287,6 +411,7 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
     projectRevision: next.projectRevision,
     changedFields,
     invalidatedAnalysisId,
+    invalidatedComparisonDesignIds,
     analysisFreshness: invalidatedAnalysisId ? 'stale' : 'unavailable',
     activityId,
   };
@@ -296,7 +421,7 @@ function updateDesignPart<TPart extends WingGeometry | WingStructure>(
 
 export function updateWingGeometry(state: ProjectState, input: UpdateDesignInput<Partial<WingGeometry>>, actor: Actor, runtime: CommandRuntime = defaultRuntime) {
   return updateDesignPart(state, input, actor, 'update_wing_geometry', 'geometry', {
-    spanM: 'm', rootChordM: 'm', tipChordM: 'm', rootTwistDeg: 'deg', tipTwistDeg: 'deg', nacaCode: '',
+    spanM: 'm', rootChordM: 'm', tipChordM: 'm', rootTwistDeg: 'deg', tipTwistDeg: 'deg', nacaCode: '', airfoilStations: '', polarModel: '',
   }, runtime);
 }
 
@@ -308,6 +433,7 @@ export function updateWingStructure(state: ProjectState, input: UpdateDesignInpu
 
 export interface RunAnalysisRequest {
   designId: DesignId;
+  expectedProjectRevision: number;
   expectedDesignRevision: number;
   expectedFlightCaseRevision: number;
   expectedConstraintsRevision: number;
@@ -329,6 +455,15 @@ export interface RunAnalysisResult {
   iterations: number;
   metrics: AnalysisSnapshot['metrics'];
   allConstraintsSatisfied: boolean;
+  checkSummary: {
+    designKind: WingDesign['kind'];
+    configured: number;
+    applicable: number;
+    passed: number;
+    failed: number;
+    unavailable: number;
+    allApplicableSatisfied: boolean;
+  };
   warnings: string[];
   activityId: string;
 }
@@ -343,33 +478,74 @@ export function preflightAnalysisRun(state: ProjectState, request: RunAnalysisRe
   if (replay) {
     if (!replay.ok) return replay;
     if (replay.data.status !== 'converged') {
-      return fail('ANALYSIS_DID_NOT_CONVERGE', 'The original idempotent analysis did not converge, so constraints remain unavailable.', 'Review the model range, change the candidate, and retry with a new UUID.', { analysisId: replay.data.analysisId, committed: true });
+      const diagnosticRetained = Boolean(state.analyses[replay.data.analysisId]);
+      const owner = state.designs[replay.data.designId];
+      const currentReplacementAnalysisId = owner?.latestAnalysisId && analysisIsCurrent(state, owner.latestAnalysisId)
+        ? owner.latestAnalysisId
+        : null;
+      return fail(
+        'ANALYSIS_DID_NOT_CONVERGE',
+        diagnosticRetained
+          ? 'The original idempotent analysis did not converge; its diagnostic snapshot remains retained and configured checks are unavailable.'
+          : 'The original idempotent analysis did not converge, and its diagnostic snapshot is no longer retained in the bounded analysis history.',
+        currentReplacementAnalysisId
+          ? `Use current converged analysis ${currentReplacementAnalysisId} for current evidence; review the replayed diagnostic only as historical context.`
+          : diagnosticRetained
+            ? 'Review the retained diagnostic and current model range; run the current design revision with a new UUID only if new evidence is needed.'
+            : 'Read the current state and run the current design revision with a new UUID only if new inspectable evidence is needed.',
+        diagnosticRetained ? { analysisId: replay.data.analysisId, committed: true } : { committed: false },
+      );
     }
     return { ok: true, replayed: true, data: { kind: 'replay', result: replay.data } };
   }
   const design = state.designs[request.designId];
   if (!design) return fail('DESIGN_NOT_FOUND', 'The requested design does not exist.', 'Read the current design state and retry with an explicit design ID.');
   if (request.fidelity !== 'fast' && request.fidelity !== 'standard') return fail('VALIDATION_ERROR', 'Unsupported solver fidelity.', 'Use fast or standard fidelity.');
-  const inputIssues = [...validateDesign(design.geometry, design.structure), ...validateFlightCase(state.flightCase)];
-  if (inputIssues.length) return fail('VALIDATION_ERROR', 'The design or flight case is outside the supported analysis model.', 'Correct the listed values before running analysis.', { issues: inputIssues.slice(0, 6) });
-  const conflict = design.revision !== request.expectedDesignRevision
+  const conflict = state.projectRevision !== request.expectedProjectRevision
+    || design.revision !== request.expectedDesignRevision
     || state.flightCase.revision !== request.expectedFlightCaseRevision
     || state.constraints.revision !== request.expectedConstraintsRevision;
   if (conflict) {
     return fail('REVISION_CONFLICT', 'The design or a dependency advanced before analysis began.', 'Read the current state and retry with the returned revisions and a new UUID.', {
       retryable: true,
-      current: { designRevision: design.revision, flightCaseRevision: state.flightCase.revision, constraintsRevision: state.constraints.revision },
+      current: { projectRevision: state.projectRevision, designRevision: design.revision, flightCaseRevision: state.flightCase.revision, constraintsRevision: state.constraints.revision },
     });
   }
+  const inputIssues = [...validateDesign(design.geometry, design.structure), ...validateFlightCase(state.flightCase)];
+  const targetCl = requiredTargetLiftCoefficient(design.geometry, state.flightCase);
+  if (Number.isFinite(targetCl) && (targetCl < SOLVER_SETTINGS.requiredTargetCl[0] || targetCl > SOLVER_SETTINGS.requiredTargetCl[1])) {
+    inputIssues.push({
+      path: 'flightCase.targetLiftN',
+      reason: `The combined geometry, density, speed, and target lift require CL ${targetCl.toFixed(3)}, outside the supported ${SOLVER_SETTINGS.requiredTargetCl[0]}–${SOLVER_SETTINGS.requiredTargetCl[1].toFixed(2)} range.`,
+    });
+  }
+  if (inputIssues.length) return fail('VALIDATION_ERROR', 'The design or flight case is outside the supported analysis model.', 'Correct the listed values before running analysis.', { issues: inputIssues.slice(0, 6) });
   return { ok: true, replayed: false, data: { kind: 'ready', designId: design.designId, inputFingerprint: designInputFingerprint(state, design, request.fidelity) } };
 }
 
-const SNAPSHOT_KEYS = ['analysisId', 'designId', 'status', 'designRevision', 'flightCaseRevision', 'constraintsRevision', 'fidelity', 'solverVersion', 'inputFingerprint', 'createdAt', 'convergence', 'metrics', 'stations', 'constraints', 'warnings'] as const;
+const SNAPSHOT_KEYS = ['analysisId', 'designId', 'designKind', 'status', 'designRevision', 'flightCaseRevision', 'constraintsRevision', 'fidelity', 'solverVersion', 'inputFingerprint', 'createdAt', 'convergence', 'metrics', 'stations', 'polarDiagnostics', 'constraints', 'warnings'] as const;
 const CONVERGENCE_KEYS = ['iterations', 'equilibriumResidual', 'twistChangeDeg', 'relativeLoadChange', 'targetLiftErrorPct'] as const;
-const METRIC_KEYS = ['wingAreaM2', 'aspectRatio', 'structuralMassKg', 'liftN', 'liftCoefficient', 'inducedDragN', 'inducedDragCoefficientEstimate', 'spanEfficiencyEstimate', 'trimmedAlphaDeg', 'tipDeflectionM', 'tipElasticTwistDeg', 'minYieldMargin', 'maxBendingStressPa', 'maxTorsionalShearPa'] as const;
-const STATION_KEYS = ['eta', 'yM', 'chordM', 'geometricTwistDeg', 'liftPerSpanNpm', 'circulationM2s', 'shearN', 'bendingMomentNm', 'torqueNm', 'deflectionM', 'elasticTwistDeg', 'bendingStiffnessNm2', 'torsionalStiffnessNm2', 'vonMisesStressPa', 'yieldMargin'] as const;
+const METRIC_KEYS = ['wingAreaM2', 'aspectRatio', 'structuralMassKg', 'liftN', 'liftCoefficient', 'inducedDragN', 'inducedDragCoefficientEstimate', 'profileDragEstimateN', 'profileDragCoefficientEstimate', 'combinedWingDragEstimateN', 'combinedDragCoefficientEstimate', 'estimatedWingLiftToDrag', 'spanEfficiencyEstimate', 'trimmedAlphaDeg', 'tipDeflectionM', 'tipElasticTwistDeg', 'minYieldMargin', 'maxBendingStressPa', 'maxTorsionalShearPa'] as const;
+const STATION_KEYS = ['eta', 'yM', 'chordM', 'geometricTwistDeg', 'liftPerSpanNpm', 'circulationM2s', 'downwashMps', 'inducedAngleDeg', 'inducedDragPerSpanNpm', 'airfoilLabel', 'zeroLiftAngleDeg', 'pitchingMomentCoefficient', 'reynoldsNumber', 'sectionalLiftCoefficient', 'profileDragCoefficient', 'profileDragPerSpanNpm', 'polarState', 'shearN', 'bendingMomentNm', 'torqueNm', 'deflectionM', 'elasticTwistDeg', 'bendingStiffnessNm2', 'torsionalStiffnessNm2', 'vonMisesStressPa', 'yieldMargin'] as const;
+const POLAR_DIAGNOSTIC_KEYS = ['model', 'profileDragAvailable', 'withinRangeStations', 'analyticEstimateStations', 'extrapolatedAlphaStations', 'outsideReynoldsStations', 'outsideAlphaStations', 'reynoldsRange', 'effectiveAlphaRangeDeg', 'provenance'] as const;
 const CONSTRAINT_KEYS = ['key', 'label', 'state', 'actual', 'limit', 'unit', 'detail'] as const;
 const EXPECTED_CONSTRAINT_KEYS = ['mass_reduction', 'yield_margin', 'tip_deflection', 'induced_drag', 'convergence'] as const;
+
+export function summarizeAnalysisChecks(analysis: AnalysisSnapshot, kind: WingDesign['kind']): RunAnalysisResult['checkSummary'] {
+  const applicableKeys = kind === 'baseline'
+    ? new Set<AnalysisSnapshot['constraints'][number]['key']>(['yield_margin', 'tip_deflection', 'convergence'])
+    : new Set<AnalysisSnapshot['constraints'][number]['key']>(EXPECTED_CONSTRAINT_KEYS);
+  const applicable = analysis.constraints.filter((check) => applicableKeys.has(check.key));
+  return {
+    designKind: kind,
+    configured: EXPECTED_CONSTRAINT_KEYS.length,
+    applicable: applicable.length,
+    passed: applicable.filter((check) => check.state === 'pass').length,
+    failed: applicable.filter((check) => check.state === 'fail').length,
+    unavailable: analysis.constraints.filter((check) => check.state === 'unavailable').length,
+    allApplicableSatisfied: analysis.status === 'converged' && applicable.length > 0 && applicable.every((check) => check.state === 'pass'),
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -400,6 +576,7 @@ function snapshotIsValid(
     const status = raw.status;
     if (status !== 'converged' && status !== 'not_converged') return false;
     if (raw.designId !== request.designId
+      || raw.designKind !== design.kind
       || raw.designRevision !== request.expectedDesignRevision
       || raw.flightCaseRevision !== request.expectedFlightCaseRevision
       || raw.constraintsRevision !== request.expectedConstraintsRevision
@@ -407,6 +584,7 @@ function snapshotIsValid(
       || raw.solverVersion !== state.solverVersion
       || raw.inputFingerprint !== expectedFingerprint
       || typeof raw.analysisId !== 'string'
+      || raw.analysisId.length !== ENTITY_ID_LENGTH
       || !/^ana_[0-9A-Z]+$/.test(raw.analysisId)
       || Object.hasOwn(state.analyses, raw.analysisId)
       || typeof raw.inputFingerprint !== 'string'
@@ -430,7 +608,8 @@ function snapshotIsValid(
     if (!isRecord(raw.metrics) || !exactKeys(raw.metrics, METRIC_KEYS)) return false;
     const metrics = raw.metrics;
     if (!METRIC_KEYS.filter((key) => key !== 'inducedDragCoefficientEstimate' && key !== 'spanEfficiencyEstimate').every((key) => finite(metrics[key]))) return false;
-    if (!finite(metrics.inducedDragCoefficientEstimate) || metrics.spanEfficiencyEstimate !== null) return false;
+    if (metrics.inducedDragCoefficientEstimate !== null && !finite(metrics.inducedDragCoefficientEstimate)) return false;
+    if (metrics.spanEfficiencyEstimate !== null && !finite(metrics.spanEfficiencyEstimate)) return false;
     const area = design.geometry.spanM * (design.geometry.rootChordM + design.geometry.tipChordM) / 2;
     const aspectRatio = design.geometry.spanM ** 2 / area;
     const dynamicPressureArea = 0.5 * state.flightCase.airDensityKgM3 * state.flightCase.velocityMps ** 2 * area;
@@ -446,11 +625,21 @@ function snapshotIsValid(
       || (metrics.inducedDragCoefficientEstimate !== null
         && ((metrics.inducedDragCoefficientEstimate as number) < 0
           || !nearlyEqual(metrics.inducedDragCoefficientEstimate as number, (metrics.inducedDragN as number) / dynamicPressureArea)))
-      || (metrics.spanEfficiencyEstimate !== null && (metrics.spanEfficiencyEstimate as number) <= 0)
+      || (metrics.profileDragEstimateN as number) <= 0
+      || !nearlyEqual(metrics.profileDragCoefficientEstimate as number, (metrics.profileDragEstimateN as number) / dynamicPressureArea)
+      || !nearlyEqual(metrics.combinedWingDragEstimateN as number, (metrics.inducedDragN as number) + (metrics.profileDragEstimateN as number))
+      || !nearlyEqual(metrics.combinedDragCoefficientEstimate as number, (metrics.combinedWingDragEstimateN as number) / dynamicPressureArea)
+      || (metrics.combinedDragCoefficientEstimate as number) <= 0
+      || !nearlyEqual(metrics.estimatedWingLiftToDrag as number, (metrics.liftN as number) / (metrics.combinedWingDragEstimateN as number))
+      || (metrics.estimatedWingLiftToDrag as number) <= 0
+      || (metrics.spanEfficiencyEstimate !== null
+        && ((metrics.spanEfficiencyEstimate as number) <= 0
+          || metrics.inducedDragCoefficientEstimate === null
+          || !nearlyEqual(metrics.spanEfficiencyEstimate as number, (metrics.liftCoefficient as number) ** 2 / (Math.PI * aspectRatio * (metrics.inducedDragCoefficientEstimate as number)))))
       || (metrics.trimmedAlphaDeg as number) < SOLVER_SETTINGS.alphaBracketDeg[0] - 1e-8
       || (metrics.trimmedAlphaDeg as number) > SOLVER_SETTINGS.alphaBracketDeg[1] + 1e-8
-      || Math.abs(metrics.tipDeflectionM as number) > 0.1 * design.geometry.spanM / 2 + 1e-9
-      || Math.abs(metrics.tipElasticTwistDeg as number) > 15 + 1e-8
+      || Math.abs(metrics.tipDeflectionM as number) > SOLVER_SETTINGS.maxTipDeflectionSemispanFraction * design.geometry.spanM / 2 + 1e-9
+      || Math.abs(metrics.tipElasticTwistDeg as number) > SOLVER_SETTINGS.maxElasticTwistDeg + 1e-8
       || (metrics.minYieldMargin as number) <= 0
       || (metrics.maxBendingStressPa as number) < 0
       || (metrics.maxTorsionalShearPa as number) < 0) return false;
@@ -460,16 +649,35 @@ function snapshotIsValid(
     for (let index = 0; index < raw.stations.length; index += 1) {
       const station = raw.stations[index];
       if (!isRecord(station) || !exactKeys(station, STATION_KEYS)) return false;
-      if (!STATION_KEYS.filter((key) => key !== 'yieldMargin').every((key) => finite(station[key]))) return false;
+      if (!STATION_KEYS.filter((key) => key !== 'yieldMargin' && key !== 'airfoilLabel' && key !== 'polarState').every((key) => finite(station[key]))) return false;
       if (station.yieldMargin !== null && (!finite(station.yieldMargin) || station.yieldMargin <= 0)) return false;
+      if (typeof station.airfoilLabel !== 'string' || station.airfoilLabel.length < 1 || station.airfoilLabel.length > 80 || /[\u0000-\u001f\u007f]/.test(station.airfoilLabel)) return false;
+      if (!['within_range', 'extrapolated_alpha', 'outside_reynolds', 'outside_alpha', 'analytic_estimate'].includes(station.polarState as string)) return false;
       const eta = station.eta as number;
       if (eta < 0 || eta > 1 || (index > 0 && eta <= (raw.stations[index - 1] as Record<string, number>).eta)) return false;
       const expectedY = eta * design.geometry.spanM / 2;
       const expectedChord = design.geometry.rootChordM + (design.geometry.tipChordM - design.geometry.rootChordM) * eta;
       const expectedGeometricTwist = design.geometry.rootTwistDeg + (design.geometry.tipTwistDeg - design.geometry.rootTwistDeg) * eta;
+      const expectedSection = localAirfoilSection(design.geometry, eta, 80);
+      const expectedReynolds = state.flightCase.airDensityKgM3 * state.flightCase.velocityMps * expectedChord / state.flightCase.dynamicViscosityPaS;
       if (!nearlyEqual(station.yM as number, expectedY)
         || !nearlyEqual(station.chordM as number, expectedChord)
         || !nearlyEqual(station.geometricTwistDeg as number, expectedGeometricTwist)
+        || station.airfoilLabel !== expectedSection.label
+        || !nearlyEqual(station.zeroLiftAngleDeg as number, expectedSection.zeroLiftAngleRad * 180 / Math.PI, 1e-7, 1e-8)
+        || !nearlyEqual(station.reynoldsNumber as number, expectedReynolds)
+        || Math.abs(station.pitchingMomentCoefficient as number) > 2
+        || Math.abs(station.sectionalLiftCoefficient as number) > 3
+        || (station.profileDragCoefficient as number) < 0
+        || (station.profileDragPerSpanNpm as number) < 0
+        || (station.downwashMps as number) < -1e-10
+        || (station.inducedAngleDeg as number) < -1e-10
+        || !nearlyEqual(
+          station.inducedAngleDeg as number,
+          Math.atan2(station.downwashMps as number, state.flightCase.velocityMps) * 180 / Math.PI,
+          1e-8,
+          1e-9,
+        )
         || (station.chordM as number) <= 0
         || (station.bendingStiffnessNm2 as number) <= 0
         || (station.torsionalStiffnessNm2 as number) <= 0
@@ -493,10 +701,30 @@ function snapshotIsValid(
       || !nearlyEqual(lastStation.elasticTwistDeg as number, metrics.tipElasticTwistDeg as number)
       || !nearlyEqual(lastStation.liftPerSpanNpm as number, 0, 0, 1e-9)
       || !nearlyEqual(lastStation.circulationM2s as number, 0, 0, 1e-12)
+      || !nearlyEqual(lastStation.downwashMps as number, 0, 0, 1e-12)
+      || !nearlyEqual(lastStation.inducedAngleDeg as number, 0, 0, 1e-12)
+      || !nearlyEqual(lastStation.inducedDragPerSpanNpm as number, 0, 0, 1e-12)
+      || !nearlyEqual(lastStation.profileDragPerSpanNpm as number, 0, 0, 1e-12)
       || aggregateVonMisesPa + 1e-6 < maximumStationVonMisesPa
       || aggregateVonMisesPa + 1e-6 < (metrics.maxBendingStressPa as number)
       || aggregateVonMisesPa + 1e-6 < Math.sqrt(3) * (metrics.maxTorsionalShearPa as number)
       || aggregateVonMisesPa > componentUpperBoundPa * (1 + 1e-8) + 1e-6) return false;
+
+    const expectedPanelCount = request.fidelity === 'fast' ? SOLVER_SETTINGS.fast.fullSpanPanelCount : SOLVER_SETTINGS.standard.fullSpanPanelCount;
+
+    if (!isRecord(raw.polarDiagnostics) || !exactKeys(raw.polarDiagnostics, POLAR_DIAGNOSTIC_KEYS)) return false;
+    const polarDiagnostics = raw.polarDiagnostics;
+    const countKeys = ['withinRangeStations', 'analyticEstimateStations', 'extrapolatedAlphaStations', 'outsideReynoldsStations', 'outsideAlphaStations'] as const;
+    if (polarDiagnostics.model !== (design.geometry.polarModel.kind === 'USER_TABLES' ? 'user_section_polars' : 'analytic_attached_polar')
+      || polarDiagnostics.profileDragAvailable !== true
+      || !countKeys.every((key) => Number.isInteger(polarDiagnostics[key]) && (polarDiagnostics[key] as number) >= 0)
+      || countKeys.reduce((sum, key) => sum + (polarDiagnostics[key] as number), 0) !== expectedPanelCount / 2
+      || !Array.isArray(polarDiagnostics.reynoldsRange) || polarDiagnostics.reynoldsRange.length !== 2 || !polarDiagnostics.reynoldsRange.every(finite)
+      || (polarDiagnostics.reynoldsRange[0] as number) <= 0 || (polarDiagnostics.reynoldsRange[1] as number) < (polarDiagnostics.reynoldsRange[0] as number)
+      || !Array.isArray(polarDiagnostics.effectiveAlphaRangeDeg) || polarDiagnostics.effectiveAlphaRangeDeg.length !== 2 || !polarDiagnostics.effectiveAlphaRangeDeg.every(finite)
+      || (polarDiagnostics.effectiveAlphaRangeDeg[1] as number) < (polarDiagnostics.effectiveAlphaRangeDeg[0] as number)
+      || !Array.isArray(polarDiagnostics.provenance) || polarDiagnostics.provenance.length < 1 || polarDiagnostics.provenance.length > 6
+      || !polarDiagnostics.provenance.every((value) => typeof value === 'string' && value.length > 0 && value.length <= 120 && !/[\u0000-\u001f\u007f]/.test(value))) return false;
 
     if (!Array.isArray(raw.constraints) || raw.constraints.length !== EXPECTED_CONSTRAINT_KEYS.length) return false;
     const expectedConstraints = evaluateDesignConstraints(
@@ -617,6 +845,7 @@ export function commitAnalysisSnapshot(
     iterations: trustedSnapshot.convergence.iterations,
     metrics: structuredClone(trustedSnapshot.metrics),
     allConstraintsSatisfied: trustedSnapshot.status === 'converged' && trustedSnapshot.constraints.length === EXPECTED_CONSTRAINT_KEYS.length && trustedSnapshot.constraints.every((constraint) => constraint.state === 'pass'),
+    checkSummary: summarizeAnalysisChecks(trustedSnapshot, design.kind),
     warnings: trustedSnapshot.warnings.slice(0, 4),
     activityId,
   };

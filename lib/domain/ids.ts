@@ -1,4 +1,5 @@
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+export const ENTITY_ID_LENGTH = 30;
 
 function encodeBase32(value: number, length: number) {
   let remaining = Math.max(0, Math.floor(value));

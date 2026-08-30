@@ -1,8 +1,9 @@
 'use client';
 
 import { useId, useMemo, useState } from 'react';
-import type { Actor, DesignConstraints, DomainResult, FlightCase, WingDesign, WingGeometry, WingStructure } from '@/lib/domain/types';
-import { sampleNaca4 } from '@/lib/solver/naca';
+import type { Actor, AirfoilDefinition, AirfoilStation, DesignConstraints, DomainResult, FlightCase, PolarModel, WingDesign, WingGeometry, WingStructure } from '@/lib/domain/types';
+import { MAX_AIRFOIL_STATIONS, MIN_AIRFOIL_STATION_SEPARATION } from '@/lib/domain/limits';
+import { canonicalAirfoil } from '@/lib/solver/airfoilSections';
 
 interface NumberInputProps {
   label: string; value: number; unit: string; min: number; max: number; step: number; disabled: boolean; changedBy?: Actor | null; onCommit: (value: number) => DomainResult<unknown>;
@@ -44,46 +45,28 @@ function NumberInput({ label, value, unit, min, max, step, disabled, changedBy, 
   );
 }
 
-function AirfoilPreview({ code }: { code: string }) {
+function AirfoilPreview({ definition }: { definition: AirfoilDefinition }) {
   const path = useMemo(() => {
-    const points = sampleNaca4(code, 64);
-    const upper = points.map((point) => `${point.xUpper},${-point.zUpper}`);
-    const lower = [...points].reverse().map((point) => `${point.xLower},${-point.zLower}`);
+    const section = canonicalAirfoil(definition, 64);
+    const upper = section.upper.map(([x, z]) => `${x},${-z}`);
+    const lower = [...section.lower].reverse().map(([x, z]) => `${x},${-z}`);
     return `M ${[...upper, ...lower].join(' L ')} Z`;
-  }, [code]);
+  }, [definition]);
+  const section = useMemo(() => canonicalAirfoil(definition, 64), [definition]);
   return (
     <div className="airfoil-preview">
-      <svg viewBox="-0.03 -0.14 1.06 0.28" role="img" aria-label={`NACA ${code} airfoil section`} preserveAspectRatio="none"><line x1="0" x2="1" y1="0" y2="0" /><path d={path} /></svg>
-      <small>{Number(code.slice(2))}% thickness · {Number(code[0])}% camber</small>
+      <svg viewBox="-0.03 -0.14 1.06 0.28" role="img" aria-label={`${section.label} airfoil section`} preserveAspectRatio="none"><line x1="0" x2="1" y1="0" y2="0" /><path d={path} /></svg>
+      <small>{(100 * section.maximumThicknessRatio).toFixed(1)}% thickness · {(100 * section.maximumCamberRatio).toFixed(1)}% max camber</small>
     </div>
   );
 }
 
 export function GeometryEditor({ design, editable, changedFields, changedActor, onUpdate }: { design: WingDesign; editable: boolean; changedFields: string[]; changedActor: Actor | null; onUpdate: (patch: Partial<WingGeometry>) => DomainResult<unknown> }) {
-  const [naca, setNaca] = useState(design.geometry.nacaCode);
-  const [nacaError, setNacaError] = useState('');
-  const nacaErrorId = useId();
   const changed = (field: string) => changedFields.includes(`geometry.${field}`);
-  const commitNaca = () => {
-    const normalized = naca.trim();
-    if (!/^(00(0[6-9]|1[0-9]|2[0-4])|[1-6][1-9](0[6-9]|1[0-9]|2[0-4]))$/.test(normalized)) {
-      setNacaError('Use a supported four-digit NACA code with 6–24% thickness.');
-      setNaca(design.geometry.nacaCode);
-      return;
-    }
-    if (normalized === design.geometry.nacaCode) { setNacaError(''); return; }
-    const result = onUpdate({ nacaCode: normalized });
-    if (!result.ok) {
-      setNacaError(result.error.issues?.[0]?.reason ?? result.error.message);
-      setNaca(design.geometry.nacaCode);
-      return;
-    }
-    setNacaError('');
-  };
   return (
     <div className="editor-stack">
       <section className="control-group">
-        <div className="group-heading"><h3>Wing geometry</h3><span>Validated range</span></div>
+        <div className="group-heading"><h3>Wing geometry</h3><span>Supported model bounds</span></div>
         <div className="control-grid">
           <NumberInput label="Projected span" value={design.geometry.spanM} unit="m" min={4} max={16} step={0.1} disabled={!editable} changedBy={changed('spanM') ? changedActor : null} onCommit={(spanM) => onUpdate({ spanM })} />
           <NumberInput label="Root chord" value={design.geometry.rootChordM} unit="m" min={0.8} max={4} step={0.01} disabled={!editable} changedBy={changed('rootChordM') ? changedActor : null} onCommit={(rootChordM) => onUpdate({ rootChordM })} />
@@ -91,12 +74,138 @@ export function GeometryEditor({ design, editable, changedFields, changedActor, 
           <NumberInput label="Tip twist" value={design.geometry.tipTwistDeg} unit="deg" min={-6} max={3} step={0.1} disabled={!editable} changedBy={changed('tipTwistDeg') ? changedActor : null} onCommit={(tipTwistDeg) => onUpdate({ tipTwistDeg })} />
         </div>
       </section>
+      <div className="model-note"><span>↗</span><p><strong>Section definitions are spanwise.</strong><br />Use the Airfoils tab to add root, intermediate, and tip sections.</p></div>
+      {!editable && <div className="protected-note"><span aria-hidden="true">◆</span><p><strong>This design is read-only.</strong><br />Editing is unavailable in this view.</p></div>}
+    </div>
+  );
+}
+
+const NACA_PATTERN = /^(00(0[6-9]|1[0-9]|2[0-4])|[1-6][1-9](0[6-9]|1[0-9]|2[0-4]))$/;
+
+function AirfoilStationEditor({
+  station,
+  index,
+  count,
+  editable,
+  minimumEta,
+  maximumEta,
+  onChange,
+  onRemove,
+}: {
+  station: AirfoilStation;
+  index: number;
+  count: number;
+  editable: boolean;
+  minimumEta: number;
+  maximumEta: number;
+  onChange: (station: AirfoilStation) => DomainResult<unknown>;
+  onRemove: () => void;
+}) {
+  const [nacaDraft, setNacaDraft] = useState(station.airfoil.kind === 'NACA4' ? station.airfoil.code : '2412');
+  const [coordinateName, setCoordinateName] = useState(station.airfoil.kind === 'COORDINATES' ? station.airfoil.name : `${station.id} imported`);
+  const [coordinateSource, setCoordinateSource] = useState(station.airfoil.kind === 'COORDINATES' ? station.airfoil.source ?? '' : '');
+  const [coordinateText, setCoordinateText] = useState(station.airfoil.kind === 'COORDINATES'
+    ? station.airfoil.points.map(([x, z]) => `${x} ${z}`).join('\n')
+    : '');
+  const [error, setError] = useState('');
+  const errorId = useId();
+  const endpoint = index === 0 || index === count - 1;
+  const commitNaca = () => {
+    const code = nacaDraft.trim();
+    if (!NACA_PATTERN.test(code)) { setError('Use a supported four-digit NACA code with 6–24% thickness.'); return; }
+    const result = onChange({ ...station, airfoil: { kind: 'NACA4', code } });
+    if (!result.ok) setError(result.error.issues?.[0]?.reason ?? result.error.message); else setError('');
+  };
+  const importCoordinates = () => {
+    const points: Array<readonly [number, number]> = [];
+    for (const line of coordinateText.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+      const values = trimmed.replace(/,/g, ' ').split(/\s+/).slice(0, 2).map(Number);
+      if (values.length < 2 || values.some((value) => !Number.isFinite(value))) continue;
+      points.push([values[0], values[1]]);
+    }
+    if (points.length < 24 || points.length > 161) { setError('Paste 24–161 finite x/z contour points; a text title line is allowed.'); return; }
+    const definition: AirfoilDefinition = { kind: 'COORDINATES', name: coordinateName.trim(), points, ...(coordinateSource.trim() ? { source: coordinateSource.trim() } : {}) };
+    const result = onChange({ ...station, airfoil: definition });
+    if (!result.ok) setError(result.error.issues?.[0]?.reason ?? result.error.message); else setError('');
+  };
+  return (
+    <article className="airfoil-station-card">
+      <div className="station-card-heading"><div><span>{endpoint ? index === 0 ? 'ROOT' : 'TIP' : `STATION ${index + 1}`}</span><strong>{station.id}</strong></div><b>η {station.eta.toFixed(3)}</b>{!endpoint && <button type="button" disabled={!editable} onClick={onRemove} aria-label={`Remove airfoil station ${station.id}`}>Remove</button>}</div>
+      <NumberInput label={`Station ${station.id} eta`} value={station.eta} unit="η" min={endpoint ? station.eta : minimumEta} max={endpoint ? station.eta : maximumEta} step={0.01} disabled={!editable || endpoint} onCommit={(eta) => onChange({ ...station, eta })} />
+      {station.airfoil.kind === 'NACA4'
+        ? <label className="naca-field"><span>NACA four-digit</span><input aria-label={`NACA code at eta ${station.eta.toFixed(3)}`} aria-describedby={error ? errorId : undefined} value={nacaDraft} maxLength={4} disabled={!editable} onChange={(event) => { setError(''); setNacaDraft(event.target.value.replace(/\D/g, '')); }} onBlur={commitNaca} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label>
+        : <div className="coordinate-summary"><span>Imported contour</span><strong>{station.airfoil.name}</strong><small>{station.airfoil.points.length} source points{station.airfoil.source ? ` · ${station.airfoil.source}` : ''}</small><button type="button" disabled={!editable} onClick={() => { setNacaDraft('2412'); const result = onChange({ ...station, airfoil: { kind: 'NACA4', code: '2412' } }); if (!result.ok) setError(result.error.message); }}>Replace with NACA</button></div>}
+      <AirfoilPreview definition={station.airfoil} />
+      {index < count - 1 && <label className="station-blend"><span>Interpolation to next station</span><select aria-label={`Blend after ${station.id}`} value={station.blendToNext} disabled={!editable} onChange={(event) => onChange({ ...station, blendToNext: event.target.value as AirfoilStation['blendToNext'] })}><option value="LINEAR_CAMBER_THICKNESS">Camber + half-thickness</option><option value="HOLD">Hold this section</option></select></label>}
+      <details className="coordinate-import"><summary>{station.airfoil.kind === 'COORDINATES' ? 'Replace coordinate contour' : 'Import coordinate contour'}</summary><div><label>Name<input value={coordinateName} maxLength={40} disabled={!editable} onChange={(event) => setCoordinateName(event.target.value)} /></label><label>Source / provenance<input value={coordinateSource} maxLength={120} disabled={!editable} onChange={(event) => setCoordinateSource(event.target.value)} /></label><label>Contour points<textarea aria-label={`Coordinate contour at eta ${station.eta.toFixed(3)}`} value={coordinateText} disabled={!editable} placeholder={'Airfoil name (optional title line)\n1.0000 0.0013\n0.9500 0.0114\n…'} onChange={(event) => setCoordinateText(event.target.value)} /></label><button className="button compact" type="button" disabled={!editable} onClick={importCoordinates}>Normalize & apply contour</button></div></details>
+      {error && <small id={errorId} className="field-error station-error" role="alert">{error}</small>}
+    </article>
+  );
+}
+
+export function AirfoilEditor({ design, editable, changedFields, changedActor, onUpdate }: { design: WingDesign; editable: boolean; changedFields: string[]; changedActor: Actor | null; onUpdate: (patch: Partial<WingGeometry>) => DomainResult<unknown> }) {
+  const [polarText, setPolarText] = useState('');
+  const [polarError, setPolarError] = useState('');
+  const stations = design.geometry.airfoilStations;
+  const userPolarsActive = design.geometry.polarModel.kind === 'USER_TABLES';
+  const commitStations = (nextStations: AirfoilStation[]) => onUpdate({
+    airfoilStations: [...nextStations].sort((left, right) => left.eta - right.eta),
+    ...(userPolarsActive ? { polarModel: { kind: 'ANALYTIC_ATTACHED', tables: [] } as PolarModel } : {}),
+  });
+  const updateStation = (index: number, station: AirfoilStation) => {
+    const next = structuredClone(stations);
+    next[index] = station;
+    return commitStations(next);
+  };
+  const addStation = () => {
+    if (stations.length >= MAX_AIRFOIL_STATIONS) return;
+    let gapIndex = 0;
+    for (let index = 1; index < stations.length - 1; index += 1) {
+      if (stations[index + 1].eta - stations[index].eta > stations[gapIndex + 1].eta - stations[gapIndex].eta) gapIndex = index;
+    }
+    const used = new Set(stations.map((station) => station.id));
+    let suffix = 1;
+    while (used.has(`afs_mid${suffix}`)) suffix += 1;
+    const left = stations[gapIndex];
+    const next = structuredClone(stations);
+    next.splice(gapIndex + 1, 0, {
+      id: `afs_mid${suffix}`,
+      eta: (left.eta + stations[gapIndex + 1].eta) / 2,
+      airfoil: structuredClone(left.airfoil),
+      blendToNext: left.blendToNext,
+    });
+    void commitStations(next);
+  };
+  const applyPolarTables = () => {
+    try {
+      const parsed = JSON.parse(polarText) as unknown;
+      const candidate = Array.isArray(parsed) ? { kind: 'USER_TABLES', tables: parsed } : parsed;
+      if (!candidate || typeof candidate !== 'object') throw new Error('Paste a polar-model object or an array of SectionPolar tables.');
+      const result = onUpdate({ polarModel: candidate as PolarModel });
+      if (!result.ok) setPolarError(result.error.issues?.[0]?.reason ?? result.error.message); else setPolarError('');
+    } catch (error) {
+      setPolarError(error instanceof Error ? error.message : 'Polar JSON could not be parsed.');
+    }
+  };
+  return (
+    <div className="editor-stack airfoil-editor">
       <section className="control-group">
-        <div className="group-heading"><h3>Airfoil section</h3><span>Single section</span></div>
-        <label className={`naca-field ${changed('nacaCode') ? 'field-changed' : ''}`}><span>NACA four-digit{changed('nacaCode') && changedActor && <b className={`agent-chip actor-${changedActor}`}>{mutationLabel(changedActor)}</b>}</span><input aria-label="NACA four-digit code" aria-describedby={nacaError ? nacaErrorId : undefined} aria-invalid={Boolean(nacaError)} value={naca} maxLength={4} disabled={!editable} onChange={(event) => { setNacaError(''); setNaca(event.target.value.replace(/\D/g, '')); }} onBlur={commitNaca} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); if (event.key === 'Escape') { setNacaError(''); setNaca(design.geometry.nacaCode); event.currentTarget.blur(); } }} />{nacaError && <small id={nacaErrorId} className="field-error" role="alert">{nacaError}</small>}</label>
-        <AirfoilPreview code={design.geometry.nacaCode} />
+        <div className="group-heading"><h3>Spanwise airfoil stations</h3><span className="capability-badge">V4 · {stations.length} / {MAX_AIRFOIL_STATIONS}</span></div>
+        <p className="editor-intro">Root and tip are required. Intermediate sections blend camber and half-thickness independently; the same local section drives the loft, wing box, zero-lift angle, and pitching moment.</p>
+        <div className="airfoil-station-list">{stations.map((station, index) => <AirfoilStationEditor key={station.id} station={station} index={index} count={stations.length} editable={editable} minimumEta={index === 0 ? 0 : stations[index - 1].eta + MIN_AIRFOIL_STATION_SEPARATION} maximumEta={index === stations.length - 1 ? 1 : stations[index + 1].eta - MIN_AIRFOIL_STATION_SEPARATION} onChange={(next) => updateStation(index, next)} onRemove={() => { const next = structuredClone(stations); next.splice(index, 1); void commitStations(next); }} />)}</div>
+        <button className="candidate-button add-station" type="button" disabled={!editable || stations.length >= MAX_AIRFOIL_STATIONS} onClick={addStation}>＋ Add intermediate section</button>
+        {changedFields.includes('geometry.airfoilStations') && changedActor && <p className="mutation-note"><b className={`agent-chip actor-${changedActor}`}>{mutationLabel(changedActor)}</b> updated the spanwise section definition.</p>}
+        {userPolarsActive && <p className="scientific-warning"><strong>Polar consistency guard.</strong> Editing section geometry automatically returns this design to the analytic estimate so an old table cannot be silently assigned to a changed airfoil.</p>}
       </section>
-      {!editable && <div className="protected-note"><span aria-hidden="true">◆</span><p><strong>Baseline is protected.</strong><br />Create a candidate to edit geometry.</p></div>}
+      <section className="control-group polar-editor">
+        <div className="group-heading"><h3>Section polar source</h3><span className={userPolarsActive ? 'success-text' : ''}>{userPolarsActive ? `${design.geometry.polarModel.tables.length} user tables` : 'Analytic estimate'}</span></div>
+        <p className="editor-intro">V5 couples local Reynolds number, C<sub>l</sub>, C<sub>d</sub>, and C<sub>m</sub>. The built-in model is explicitly an attached-flow estimate; imported XFOIL or experimental tables retain provenance and range states.</p>
+        <div className="polar-source-card"><span>Active source</span><strong>{userPolarsActive ? 'User section tables' : 'Aeroficiency analytic attached-flow estimate'}</strong><small>{userPolarsActive ? 'Interpolation by station, Reynolds number, and angle of attack.' : 'Not an experimental correlation and not a stall model.'}</small>{userPolarsActive && <button className="button compact" type="button" disabled={!editable} onClick={() => onUpdate({ polarModel: { kind: 'ANALYTIC_ATTACHED', tables: [] } })}>Use analytic estimate</button>}</div>
+        <details className="polar-import"><summary>Import bounded SectionPolar JSON</summary><div><textarea aria-label="Section polar JSON" value={polarText} disabled={!editable} placeholder={'[{"polarId":"root_re1m","airfoilStationId":"afs_root","reynolds":1000000,"mach":0,"rows":[…],"provenance":{"source":"XFOIL","label":"XFOIL 6.99"}}, …]'} onChange={(event) => { setPolarText(event.target.value); setPolarError(''); }} /><button className="button compact" type="button" disabled={!editable || !polarText.trim()} onClick={applyPolarTables}>Validate & use tables</button>{polarError && <small className="field-error" role="alert">{polarError}</small>}</div></details>
+      </section>
+      {!editable && <div className="protected-note"><span aria-hidden="true">◆</span><p><strong>This design is read-only.</strong><br />Editing is unavailable in this view.</p></div>}
     </div>
   );
 }
@@ -116,7 +225,7 @@ export function StructureEditor({ design, editable, changedFields, changedActor,
       </section>
       <section className="section-facts" aria-label="Fixed structural assumptions"><div><span>Front spar</span><strong>0.20 c</strong></div><div><span>Rear spar</span><strong>0.65 c</strong></div><div><span>Young&apos;s modulus</span><strong>73.1 GPa</strong></div><div><span>Yield strength</span><strong>345 MPa</strong></div></section>
       <div className="model-note"><span>i</span><p><strong>Yield model only</strong><br />Buckling, fatigue, local failure, and certification loads are not evaluated.</p></div>
-      {!editable && <div className="protected-note"><span aria-hidden="true">◆</span><p><strong>Baseline is protected.</strong><br />Create a candidate to edit structure.</p></div>}
+      {!editable && <div className="protected-note"><span aria-hidden="true">◆</span><p><strong>This design is read-only.</strong><br />Editing is unavailable in this view.</p></div>}
     </div>
   );
 }
@@ -125,7 +234,7 @@ export function CaseEditor({ flightCase, constraints }: { flightCase: FlightCase
   return (
     <div className="editor-stack">
       <section className="control-group"><div className="group-heading"><h3>Target-lift case</h3><span>Revision {flightCase.revision}</span></div><div className="section-facts"><div><span>Target lift</span><strong>{(flightCase.targetLiftN / 1000).toFixed(1)} kN</strong></div><div><span>Velocity</span><strong>{flightCase.velocityMps.toFixed(1)} m/s</strong></div><div><span>Air density</span><strong>{flightCase.airDensityKgM3.toFixed(3)} kg/m³</strong></div><div><span>Altitude</span><strong>{flightCase.altitudeM.toFixed(0)} m</strong></div></div></section>
-      <section className="control-group"><div className="group-heading"><h3>Acceptance constraints</h3><span>Revision {constraints.revision}</span></div><div className="section-facts"><div><span>Mass reduction</span><strong>≥ {constraints.minMassReductionPct.toFixed(1)}%</strong></div><div><span>Yield margin</span><strong>≥ {constraints.minYieldMargin.toFixed(2)}×</strong></div><div><span>Tip deflection</span><strong>≤ {constraints.maxTipDeflectionM.toFixed(2)} m</strong></div><div><span>Induced drag</span><strong>≤ baseline</strong></div></div></section>
+      <section className="control-group"><div className="group-heading"><h3>Configured trade-study checks</h3><span>Revision {constraints.revision}</span></div><div className="section-facts"><div><span>Modeled wall-mass reduction</span><strong>≥ {constraints.minMassReductionPct.toFixed(1)}%</strong></div><div><span>Modeled yield ratio</span><strong>≥ {constraints.minYieldMargin.toFixed(2)}×</strong></div><div><span>Tip deflection</span><strong>≤ {constraints.maxTipDeflectionM.toFixed(2)} m</strong></div><div><span>Wake-drag estimate</span><strong>≤ baseline</strong></div><div><span>Static convergence</span><strong>Required</strong></div></div></section>
       <div className="locked-case"><span aria-hidden="true">◇</span><p>The shared reference case is fixed for the deterministic challenge trade study.</p></div>
     </div>
   );

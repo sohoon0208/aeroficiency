@@ -1,12 +1,13 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 
-const AerociencyWorkspace = dynamic(
-  () => import('@/components/workspace/AerociencyWorkspace').then((module) => module.AerociencyWorkspace),
-  { ssr: false, loading: () => <main className="app-loading"><span className="brand-mark" aria-hidden="true"><span /></span><p>AEROCIENCY</p><small>Loading preliminary design workspace…</small></main> },
+const AeroficiencyWorkspace = dynamic(
+  () => import('@/components/workspace/AeroficiencyWorkspace').then((module) => module.AeroficiencyWorkspace),
+  { ssr: false, loading: () => <main className="app-loading"><Image className="brand-logo brand-logo-loading" src="/aeroficiency-logo-white.png" alt="Aeroficiency" width={220} height={39} priority /><small>Loading preliminary design workspace…</small></main> },
 );
 
 export default function Home() {
-  return <AerociencyWorkspace />;
+  return <AeroficiencyWorkspace />;
 }

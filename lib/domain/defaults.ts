@@ -24,6 +24,11 @@ export function createBaselineDesign(): WingDesign {
       rootTwistDeg: 0,
       tipTwistDeg: -2,
       nacaCode: '2412',
+      airfoilStations: [
+        { id: 'afs_root', eta: 0, airfoil: { kind: 'NACA4', code: '2412' }, blendToNext: 'LINEAR_CAMBER_THICKNESS' },
+        { id: 'afs_tip', eta: 1, airfoil: { kind: 'NACA4', code: '2412' }, blendToNext: 'HOLD' },
+      ],
+      polarModel: { kind: 'ANALYTIC_ATTACHED', tables: [] },
     },
     structure: {
       skinThicknessMm: 1.8,

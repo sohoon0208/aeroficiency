@@ -5,27 +5,48 @@ This checklist separates local engineering completion from user-authorized publi
 ## 1. Local release candidate
 
 - [x] Final scope matches `README.md` and no cut feature is implied.
-- [x] The UI, snapshots, validation record, eval fixture, and demo all identify solver `aerociency-0.2.0`.
+- [x] The UI, snapshots, validation record, eval fixture, and demo all identify solver `aeroficiency-0.5.0`.
 - [x] Fresh reset produces the exact deterministic baseline and no fabricated result.
 - [x] Manual baseline → candidate → edit → analyze → compare workflow passes.
-- [x] Exactly eight Site Tools register once and remain absent when WebMCP is unavailable.
+- [x] Exactly nine Site Tools register once and remain absent when WebMCP is unavailable.
+- [x] Tool classification is exactly two pure reads, two presentation actions, and five engineering writes, using only portable annotation keys.
+- [x] Station inspection and comparison change only transient presentation state; they do not change revisions, designs, analyses, idempotency, activity, or worker count.
+- [x] Station inspection focuses one exact current solver station; comparison pins the exact ordered baseline/candidate analysis IDs.
 - [x] Human and agent mutations use the same commands and actor labels are truthful.
-- [x] Baseline protection, idempotency, revision conflict, stale result, abort, failure, and non-convergence paths pass.
+- [x] Editable-Baseline invalidation, Baseline-role replacement, idempotency, revision conflict, stale result, abort, failure, and non-convergence paths pass.
+- [x] Candidate creation and analysis require the exact expected project revision in addition to entity/dependency revisions.
+- [x] Identical write replays produce no duplicate revision/activity/snapshot and are visibly announced even outside the active design; after bounded-ledger eviction, old create/update/run requests fail closed on stale project/design revisions.
+- [x] Candidate/update `replayState` distinguishes returned and current revisions; analysis `snapshotRetention` reports retained, inspectable, current, and any current replacement ID.
+- [x] Successful background analysis commits visibly identify the target design and analysis without changing the human’s current selection.
+- [x] Geometry/structure tool writes auto-open the affected editor and mobile Design view and add changed-field/Agent markers; persistent focus stays put, while a replaced editor input transfers focus to the changed control.
 - [x] Solver snapshots contain only finite JSON values or documented nulls.
 - [x] Every visible metric, plot, constraint, warning, and activity value traces to committed state.
-- [x] Geometry, Aero loads, and Structure modes are readable and accurate.
-- [x] 1440×900, tablet, 390×844, keyboard, focus, reduced motion, and 200% effective-layout checks pass.
-- [x] `npm ci` succeeds from a clean local copy.
-- [x] `npm run lint` passes.
-- [x] `npm run typecheck` passes.
-- [x] `npm run test:run` passes.
-- [x] `npm run licenses:check` passes.
-- [x] `npm run build` passes with its two understood, documented non-failing notices.
-- [x] `npm audit --audit-level=high` passes or every exception has a written reachability decision.
+- [x] Public terms distinguish modeled wing-box wall mass, wake-induced drag, SectionPolar profile drag, combined wing drag, estimated wing L/D, and modeled yield ratio.
+- [x] V4 supports two–six user-positioned NACA/imported airfoil stations with validated blend/hold semantics; local geometry drives the loft, wing box, zero-lift angle, and section moment.
+- [x] V5 supports generated or imported station/Reynolds polars, explicit provenance/range states, nonlinear lifting-line closure, profile/combined wing drag, and polar-linked torsion.
+- [x] Full supported bounds derive from shared constants and remain enforced/shared in UI, schemas, validation, and documentation; the summary uses headline bounds, trim, and compact assumption/omission categories.
+- [x] All nine success/error result envelopes stay below frozen UTF-8 byte budgets at maximum bounded state; every `get_analysis_summary` freshness variant remains under 1,500 bytes, and the absolute 6,000-byte runtime guard contains oversized injected results.
+- [x] Public worker/browser/adapter failures use fixed bounded categories and never expose raw thrown text, stack data, or untrusted returned fields.
+- [x] Advertised and runtime schemas agree on exact 30-character entity IDs, bounded labels, and non-empty allowlisted patches.
+- [x] The neutral drag display policy does not weaken the strict no-worse configured check.
+- [x] The first screen contains the challenge objective, audience, editable-Baseline state, candidate readiness, tool readiness, exact task copy, Model Scope, and release identity.
+- [x] Geometry, Aero loads, 2D Section, Efficiency, and Structure modes are readable, keyboard reachable, and accurate to their documented model boundaries.
+- [x] Section Flow uses the linked current station, passes analytic/grid/order tests, shows Kutta/flux/inviscid-drag residuals, and permanently discloses its inviscid attached-flow limits.
+- [x] Efficiency shows immutable local Reynolds/Cl/Cd/range-state evidence plus induced/profile/combined drag without implying whole-aircraft fidelity.
+- [x] The rendered nine-state presentation matrix cannot show a green verdict or canonical success copy for stale, failed, aborted, conflicted, or non-converged attempts before explicit retained-result acknowledgement.
+- [ ] Re-run the local registered-tool browser workflow for the nine-tool contract, canonical two-proposal sequence, exact replay, Baseline-role replacement, and stale-focus preservation with zero console errors.
+- [x] 1280×720, 1440×900, tablet, 390×844, keyboard, focus, reduced motion, and 200% effective-layout checks pass without document-level horizontal overflow.
+- [x] `npm ci` succeeds from the final clean local copy.
+- [x] `npm run lint` passes on the final tree.
+- [x] `npm run typecheck` passes on the final tree.
+- [x] `npm run test:run` passes on the final tree (28 files / 154 tests).
+- [x] `npm run licenses:check` passes on the final tree (119 entries / 58 distinct texts).
+- [x] `npm run build` passes with only understood, documented non-failing notices.
+- [x] `npm audit --audit-level=high` passes with 0 vulnerabilities.
 - [x] No secret, token, credential, local absolute path, or private attachment is tracked.
 - [x] Root MIT license, notices, security policy, provenance, assumptions, validation, tool docs, evals, submission copy, and demo script are present.
 - [x] Original favicon and social preview are used; third-party rights are documented.
-- [x] Local Git repository is rooted at `aerociency/`, with normal dated history.
+- [x] Local Git repository is rooted at `aeroficiency/`, with normal dated history.
 
 ## 2. Eligibility and owner attestations
 
@@ -57,7 +78,7 @@ This checklist separates local engineering completion from user-authorized publi
 - [ ] No localhost URL appears in public Open Graph/canonical metadata.
 - [ ] Fresh logged-out load works without credentials or payment.
 - [ ] Normal UI works without WebMCP.
-- [ ] Supported ChatGPT in-app browser discovers all and only eight tools.
+- [ ] Supported ChatGPT in-app browser discovers all and only nine tools.
 - [ ] Current Chrome WebMCP path discovers and invokes the same tools.
 - [ ] Live `/` response has CSP, `Origin-Agent-Cluster: ?1`, intended `Permissions-Policy`, `nosniff`, and referrer policy.
 - [ ] CSP permits the worker and all required first-party assets without browser violations.
@@ -87,7 +108,7 @@ This checklist separates local engineering completion from user-authorized publi
 - [ ] Submission contains no `PENDING_*` placeholder.
 - [ ] Submit before the internal target with time for a logged-out audit.
 - [ ] Save confirmation, final URLs, release commit, deployment ID, video duration, and screenshots privately.
-- [ ] Freeze the submitted branch/deployment through the required judging period; continue later work separately.
+- [ ] Freeze the submitted branch/deployment until winners are announced; continue later work on a separate branch.
 
 ## Stop conditions
 

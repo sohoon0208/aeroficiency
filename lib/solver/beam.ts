@@ -2,7 +2,7 @@ import type { WingDesign } from '@/lib/domain/types';
 import type { AeroResult, AeroStripResult } from './aero';
 import { solveDense } from './math';
 import { chordAtY } from './planform';
-import { recoverWallStress, wingBoxAtY, type WallStressResult } from './wingBox';
+import { expectedStructuralMassKg, recoverWallStress, wingBoxAtY, type WallStressResult } from './wingBox';
 
 const GAUSS_POINTS = [
   { r: 0.5 * (1 - Math.sqrt(3 / 5)), weight: 5 / 18 },
@@ -204,12 +204,12 @@ export function solveWingStructure(design: WingDesign, aero: AeroResult, signal?
   const elementLoadNpm = strips.map((strip, index) => strip.verticalForceN / (nodesM[index + 1] - nodesM[index]));
   const elementTorqueNmPerM = strips.map((strip, index) => (
     (design.structure.elasticAxisXOverC - 0.25) * chordAtY(design.geometry, strip.yMidM) * strip.verticalForceN / (nodesM[index + 1] - nodesM[index])
+    + strip.pitchingMomentNmPerM
   ));
   const sectionAt = (yM: number) => wingBoxAtY(design, yM);
   const bending = solveCantileverBending(nodesM, (yM) => sectionAt(yM).bendingStiffnessNm2, elementLoadNpm, 0, signal);
   const torsion = solveCantileverTorsion(nodesM, (yM) => sectionAt(yM).torsionalStiffnessNm2, elementTorqueNmPerM, 0, signal);
 
-  let semispanMassKg = 0;
   let minimumYieldMargin = Number.POSITIVE_INFINITY;
   let maxBendingStressPa = 0;
   let maxTorsionalShearPa = 0;
@@ -224,10 +224,9 @@ export function solveWingStructure(design: WingDesign, aero: AeroResult, signal?
   strips.forEach((strip) => {
     if (signal?.aborted) throw new Error('Structural solve was aborted.');
     const length = strip.yEndM - strip.yStartM;
-    for (const { r, weight } of GAUSS_POINTS) {
+    for (const { r } of GAUSS_POINTS) {
       const yM = strip.yStartM + r * length;
       const section = sectionAt(yM);
-      semispanMassKg += section.massPerLengthKgM * length * weight;
       const actions = internalActionAtY(yM, nodesM, elementLoadNpm, elementTorqueNmPerM);
       includeStress(recoverWallStress(section, actions.bendingMomentNm, actions.torqueNm));
     }
@@ -257,7 +256,7 @@ export function solveWingStructure(design: WingDesign, aero: AeroResult, signal?
   if (!Number.isFinite(minimumYieldMargin)) throw new Error('Structural solve requires a nonzero finite aerodynamic load field.');
   return {
     nodes,
-    structuralMassKg: 2 * semispanMassKg,
+    structuralMassKg: expectedStructuralMassKg(design),
     tipDeflectionM: tip.deflectionM,
     tipElasticTwistRad: tip.elasticTwistRad,
     maxElasticTwistRad: Math.max(...nodes.map((node) => Math.abs(node.elasticTwistRad))),

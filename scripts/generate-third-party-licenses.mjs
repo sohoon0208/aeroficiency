@@ -94,7 +94,7 @@ const inventory = [
 ].join('\n');
 
 const texts = [
-  'AEROCIENCY — PRESERVED PRODUCTION DEPENDENCY LICENSE AND NOTICE TEXTS',
+  'AEROFICIENCY — PRESERVED PRODUCTION DEPENDENCY LICENSE AND NOTICE TEXTS',
   '',
   `Lockfile SHA-256: ${lockHash}`,
   'Generated deterministically from installed root license, licence, copying, and notice files.',

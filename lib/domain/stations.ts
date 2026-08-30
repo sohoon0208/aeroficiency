@@ -4,6 +4,11 @@ export type InterpolatedStationField =
   | 'deflectionM'
   | 'elasticTwistDeg'
   | 'liftPerSpanNpm'
+  | 'circulationM2s'
+  | 'downwashMps'
+  | 'inducedAngleDeg'
+  | 'inducedDragPerSpanNpm'
+  | 'profileDragPerSpanNpm'
   | 'yieldMargin';
 
 /** Linear interpolation shared by the visual field and numeric readout. */

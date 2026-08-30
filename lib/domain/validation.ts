@@ -9,7 +9,8 @@ import type {
   WingGeometry,
   WingStructure,
 } from './types';
-import { nacaSurfacePoint, parseNaca4 } from '@/lib/solver/naca';
+import { localAirfoilSection, resolvedAirfoilStations, sectionSurfaceAtX, validateAirfoilStations } from '@/lib/solver/airfoilSections';
+import { validatePolarModel } from '@/lib/solver/polars';
 
 const NACA_PATTERN = /^(00(0[6-9]|1[0-9]|2[0-4])|[1-6][1-9](0[6-9]|1[0-9]|2[0-4]))$/;
 
@@ -23,6 +24,11 @@ export function wingAreaM2(geometry: WingGeometry) {
 
 export function aspectRatio(geometry: WingGeometry) {
   return geometry.spanM ** 2 / wingAreaM2(geometry);
+}
+
+export function requiredTargetLiftCoefficient(geometry: WingGeometry, flightCase: FlightCase) {
+  const dynamicPressure = 0.5 * flightCase.airDensityKgM3 * flightCase.velocityMps ** 2;
+  return flightCase.targetLiftN / (dynamicPressure * wingAreaM2(geometry));
 }
 
 export function validateGeometry(geometry: WingGeometry): DomainIssue[] {
@@ -41,8 +47,10 @@ export function validateGeometry(geometry: WingGeometry): DomainIssue[] {
     }
   }
   if (!NACA_PATTERN.test(geometry.nacaCode)) {
-    issues.push({ path: 'geometry.nacaCode', reason: 'Use a supported four-digit NACA code with 6–24% thickness.' });
+    issues.push({ path: 'geometry.nacaCode', reason: 'The legacy uniform-section alias must remain a supported four-digit NACA code.' });
   }
+  issues.push(...validateAirfoilStations(geometry.airfoilStations));
+  issues.push(...validatePolarModel(geometry));
   if (geometry.tipChordM > geometry.rootChordM) {
     issues.push({ path: 'geometry.tipChordM', reason: 'Tip chord cannot exceed root chord in the challenge model.' });
   }
@@ -98,8 +106,8 @@ export function validateFlightCase(flightCase: FlightCase): DomainIssue[] {
   if (!inRange(flightCase.targetLiftN, DESIGN_LIMITS.targetLiftN)) issues.push({ path: 'flightCase.targetLiftN', reason: `Target lift must remain within ${DESIGN_LIMITS.targetLiftN[0]}–${DESIGN_LIMITS.targetLiftN[1]} N.` });
   if (!inRange(flightCase.velocityMps, DESIGN_LIMITS.velocityMps)) issues.push({ path: 'flightCase.velocityMps', reason: `Velocity must remain within ${DESIGN_LIMITS.velocityMps[0]}–${DESIGN_LIMITS.velocityMps[1]} m/s.` });
   if (!inRange(flightCase.altitudeM, DESIGN_LIMITS.altitudeM)) issues.push({ path: 'flightCase.altitudeM', reason: `Altitude must remain within ${DESIGN_LIMITS.altitudeM[0]}–${DESIGN_LIMITS.altitudeM[1]} m.` });
-  if (!inRange(flightCase.airDensityKgM3, [0.25, 1.5])) issues.push({ path: 'flightCase.airDensityKgM3', reason: 'Air density must be finite and within 0.25–1.50 kg/m³.' });
-  if (!inRange(flightCase.dynamicViscosityPaS, [1e-5, 2.5e-5])) issues.push({ path: 'flightCase.dynamicViscosityPaS', reason: 'Dynamic viscosity must be finite and within the supported atmospheric range.' });
+  if (!inRange(flightCase.airDensityKgM3, DESIGN_LIMITS.airDensityKgM3)) issues.push({ path: 'flightCase.airDensityKgM3', reason: 'Air density must be finite and within 0.25–1.50 kg/m³.' });
+  if (!inRange(flightCase.dynamicViscosityPaS, DESIGN_LIMITS.dynamicViscosityPaS)) issues.push({ path: 'flightCase.dynamicViscosityPaS', reason: 'Dynamic viscosity must be finite and within the supported atmospheric range.' });
   return issues;
 }
 
@@ -107,27 +115,31 @@ export function validateDesign(geometry: WingGeometry, structure: WingStructure)
   const issues = [...validateGeometry(geometry), ...validateStructure(structure)];
   if (issues.length) return issues;
   try {
-    const section = parseNaca4(geometry.nacaCode);
-    const front = nacaSurfacePoint(structure.frontSparXOverC, section);
-    const rear = nacaSurfacePoint(structure.rearSparXOverC, section);
-    const chordM = geometry.tipChordM;
-    const points = [
-      [structure.frontSparXOverC * chordM, front.zUpper * chordM],
-      [structure.rearSparXOverC * chordM, rear.zUpper * chordM],
-      [structure.rearSparXOverC * chordM, rear.zLower * chordM],
-      [structure.frontSparXOverC * chordM, front.zLower * chordM],
-    ] as const;
-    const dimensions = points.map((point, index) => {
-      const next = points[(index + 1) % points.length];
-      return Math.hypot(next[0] - point[0], next[1] - point[1]);
+    const stations = resolvedAirfoilStations(geometry);
+    const sampleEta = [...new Set(stations.flatMap((station, index) => index < stations.length - 1 ? [station.eta, (station.eta + stations[index + 1].eta) / 2] : [station.eta]))];
+    let minimumDimensionM = Number.POSITIVE_INFINITY;
+    sampleEta.forEach((eta) => {
+      const section = localAirfoilSection(geometry, eta);
+      const front = sectionSurfaceAtX(section, structure.frontSparXOverC);
+      const rear = sectionSurfaceAtX(section, structure.rearSparXOverC);
+      const chordM = geometry.rootChordM + (geometry.tipChordM - geometry.rootChordM) * eta;
+      const points = [
+        [structure.frontSparXOverC * chordM, front.zUpper * chordM],
+        [structure.rearSparXOverC * chordM, rear.zUpper * chordM],
+        [structure.rearSparXOverC * chordM, rear.zLower * chordM],
+        [structure.frontSparXOverC * chordM, front.zLower * chordM],
+      ] as const;
+      points.forEach((point, index) => {
+        const next = points[(index + 1) % points.length];
+        minimumDimensionM = Math.min(minimumDimensionM, Math.hypot(next[0] - point[0], next[1] - point[1]));
+      });
     });
-    const minimumDimensionM = Math.min(...dimensions);
     const maximumGaugeM = Math.max(structure.skinThicknessMm, structure.frontWebThicknessMm, structure.rearWebThicknessMm) / 1000;
     if (!Number.isFinite(minimumDimensionM) || minimumDimensionM <= 0 || maximumGaugeM > 0.1 * minimumDimensionM) {
       issues.push({ path: 'structure', reason: `Tip-section gauges exceed the thin-wall limit for this geometry; maximum supported local gauge is ${(100 * minimumDimensionM).toFixed(3)} mm.` });
     }
-  } catch (error) {
-    issues.push({ path: 'geometry.nacaCode', reason: error instanceof Error ? error.message : 'Airfoil geometry could not be validated.' });
+  } catch {
+    issues.push({ path: 'geometry.airfoilStations', reason: 'One or more local airfoil sections cannot form a valid wing box.' });
   }
   return issues;
 }
@@ -135,15 +147,23 @@ export function validateDesign(geometry: WingGeometry, structure: WingStructure)
 export function designInputFingerprint(state: ProjectState, design: WingDesign, fidelity: string) {
   const flightCase = { ...state.flightCase };
   delete (flightCase as Partial<typeof flightCase>).revision;
+  const baseline = Object.values(state.designs).find((item) => item.kind === 'baseline') ?? null;
   return inputFingerprint({
     geometry: design.geometry,
     structure: design.structure,
+    designRole: design.kind,
+    comparisonReference: design.kind === 'candidate'
+      ? { designId: baseline?.designId ?? null, designRevision: baseline?.revision ?? null }
+      : null,
     flightCase,
     resolvedMaterial: ALUMINUM_2024_T3,
     resolvedSettings: {
       fidelity: fidelity === 'fast' ? SOLVER_SETTINGS.fast : SOLVER_SETTINGS.standard,
       vortexCoreRatio: SOLVER_SETTINGS.vortexCoreRatio,
       alphaBracketDeg: SOLVER_SETTINGS.alphaBracketDeg,
+      requiredTargetCl: SOLVER_SETTINGS.requiredTargetCl,
+      maxElasticTwistDeg: SOLVER_SETTINGS.maxElasticTwistDeg,
+      maxTipDeflectionSemispanFraction: SOLVER_SETTINGS.maxTipDeflectionSemispanFraction,
       trimMaxIterations: SOLVER_SETTINGS.trimMaxIterations,
       trimRelativeLiftTolerance: SOLVER_SETTINGS.trimRelativeLiftTolerance,
       trimAlphaToleranceRad: SOLVER_SETTINGS.trimAlphaToleranceRad,

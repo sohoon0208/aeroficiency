@@ -23,7 +23,7 @@ function analysisSeries(mode: ViewMode, analysis: AnalysisSnapshot | null): Seri
   ];
   if (mode === 'structure') return [
     { label: 'Vertical deflection', unit: 'm', color: '#f2b866', zeroFloor: true, points: analysis.stations.map((station) => ({ eta: station.eta, value: station.deflectionM })) },
-    { label: 'Yield margin', unit: '×', color: '#46d39a', limit: 1.5, zeroFloor: true, points: analysis.stations.map((station) => ({ eta: station.eta, value: station.yieldMargin })) },
+    { label: 'Modeled yield ratio', unit: '×', color: '#46d39a', limit: 1.5, zeroFloor: true, points: analysis.stations.map((station) => ({ eta: station.eta, value: station.yieldMargin })) },
   ];
   return [];
 }
@@ -60,7 +60,7 @@ function EngineeringPlot({ series, selectedEta, onSelect }: { series: Series; se
 
 export function SpanwiseCharts({ mode, design, analysis, selectedEta, onSelect }: { mode: ViewMode; design: WingDesign; analysis: AnalysisSnapshot | null; selectedEta: number; onSelect: (eta: number) => void }) {
   const series = mode === 'geometry' ? geometrySeries(design) : analysisSeries(mode, analysis);
-  if (!series.length) return <div className="chart-empty"><span>∿</span><p><strong>No analysis for this revision.</strong><br />Run the solver to populate {mode === 'aero' ? 'aerodynamic load and twist' : 'deflection and yield-margin'} plots.</p></div>;
+  if (!series.length) return <div className="chart-empty"><span>∿</span><p><strong>No current converged analysis for this revision.</strong><br />Run the solver to populate {mode === 'aero' ? 'aerodynamic load and twist' : 'deflection and modeled-yield-ratio'} plots.</p></div>;
   return (
     <div className="chart-deck">
       <label className="station-scrubber"><span>Selected station</span><input type="range" min="0" max="1" step="0.001" value={selectedEta} onChange={(event) => onSelect(Number(event.target.value))} aria-valuetext={`eta ${selectedEta.toFixed(3)}`} /><strong>η {selectedEta.toFixed(3)}</strong></label>

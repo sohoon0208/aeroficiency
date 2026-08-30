@@ -1,133 +1,150 @@
 # Model assumptions and conventions
 
-Aerociency solver `aerociency-0.2.0` implements a deterministic low-order model for transparent preliminary trade studies. These assumptions are part of every result, not optional fine print.
+Aeroficiency solver `aeroficiency-0.5.0` implements a deterministic, low-order, Reynolds/polar-aware, torsion-coupled static wing model for transparent preliminary trade studies. These limits are part of every result.
 
-## Coordinates, signs, and units
+## Structured validity contract
 
-- SI units are used internally: metres, kilograms, seconds, newtons, pascals, and radians.
-- `+x` points aft along the chord, `+y` points starboard, and `+z` points upward.
-- The aircraft centreline is `y = 0`; plots use the right semispan, `0 <= y <= b/2`.
-- Span is projected full span. Area, aerodynamic force, and structural mass are full-wing quantities.
-- Root shear, bending moment, torque, and station plots are right-semispan quantities.
-- Positive twist raises the leading edge relative to the freestream convention used by the lattice normal.
-- Geometric and elastic twist are applied once about the quarter-chord aerodynamic reference. Bending displacement is displayed but not fed back into the aerodynamic lattice.
+The authoritative machine-readable contract is `lib/domain/modelValidity.ts`; shared bounds are in `lib/domain/limits.ts` and `lib/domain/validation.ts`.
 
-## Planform and airfoil
+| Field | Value |
+|---|---|
+| Status | `PRELIMINARY` |
+| Method | `LOW_ORDER_REYNOLDS_POLAR_TORSION_COUPLED_STATIC` |
+| Wake model | `FIXED_POSITIVE_X_BODY_AXIS` |
+| Target-lift trim bracket | −8° to +12° |
+| Aerodynamic fidelity | 16 full-span panels (`fast`) or 32 (`standard`) |
 
-The challenge model is a symmetric, unswept, zero-dihedral trapezoid. Chord and geometric twist vary linearly with absolute span position:
+Supported scalar bounds include span 4–16 m, root chord 0.8–4 m, tip chord 0.3–3 m, taper ratio 0.2–1, aspect ratio 4–14, root twist 0°, tip twist −6° to +3°, skin gauge 1.2–6 mm, front/rear web gauges 1.5–8 mm, elastic axis 0.20c–0.55c, target lift 2–120 kN, speed 20–85 m/s, altitude 0–11 km, density 0.25–1.5 kg/m³, and dynamic viscosity 1e−5–2.5e−5 Pa·s. The combined geometry/case must require target CL 0.15–1.00. Elastic twist is limited to 15° and tip deflection to 10% of semispan.
+
+Coupled validation also requires tip chord not to exceed root chord, taper and aspect ratio to remain valid after a patch, the elastic axis to lie inside the spar box, and the largest gauge not to exceed 10% of the smallest local box dimension.
+
+## Coordinates, signs, and totals
+
+- SI units are used internally.
+- `+x` points aft, `+y` starboard, and `+z` upward.
+- The centreline is `y = 0`; span plots use the right semispan.
+- Span and area are full-wing values. Lift, drag, and modeled wall mass are full-wing totals.
+- Shear, bending moment, torque, deflection, twist, and station plots are right-semispan values.
+- Positive induced angle denotes downwash and is subtracted from local incidence.
+- Positive quarter-chord moment is nose-up by the section convention.
+- Geometric and elastic twist act about the quarter-chord reference. Displayed bending deformation is not fed back into the aerodynamic lattice.
+
+## Planform
+
+The wing is symmetric, unswept, and zero-dihedral with linear chord and geometric twist:
 
 ```text
-c(y) = c_root - (c_root - c_tip) * 2|y|/b
-theta_g(y) = theta_root + (theta_tip - theta_root) * 2|y|/b
+eta = 2|y|/b
+c(eta) = c_root + eta(c_tip - c_root)
+theta_g(eta) = theta_root + eta(theta_tip - theta_root)
 S = b(c_root + c_tip)/2
-AR = b^2/S
+AR = b²/S
 ```
 
-Root twist is fixed at zero. One NACA four-digit definition is used across the span. The standard mean-camber line is combined with the thickness distribution
+Root twist is fixed at zero.
+
+## V4 spanwise airfoil model
+
+A design contains two to six ordered airfoil stations. Root `eta = 0` and tip `eta = 1` are mandatory; adjacent stations are separated by at least 0.05 normalized semispan. Each interval uses either linear camber/half-thickness blending or a left-section hold.
+
+Each station accepts:
+
+- a supported NACA four-digit definition with 0–6% camber and 6–24% thickness; or
+- 24–161 finite contour points with a visible name and optional bounded source string.
+
+Imported contours are deduplicated, translated, rotated to the inferred chord, normalized to unit chord, de-trended between leading and trailing edges, checked for self-intersection and positive interior thickness, split into upper/lower branches, and cosine-resampled. NACA and imported sections then share the same canonical camber and half-thickness representation.
+
+At every requested `eta`, the solver resolves a local section. That exact local section drives:
+
+- the 3D wing surface and selected-section outline;
+- front/rear spar surface intersections and the local wing-box height;
+- zero-lift angle from the camber-line slope;
+- quarter-chord moment coefficient from thin-airfoil camber harmonics; and
+- the generated analytic polar shape.
+
+Linear blending is performed on camber and half-thickness, not by naively interpolating unordered contour points. The final surface is reconstructed normal to the blended camber line.
+
+## V5 SectionPolar model
+
+The active polar source is one of two explicit modes.
+
+### Generated attached-flow estimate
+
+The default mode generates a deterministic section polar at the requested local Reynolds number. It uses thin-airfoil zero-lift incidence, a smooth bounded attached-flow lift curve, a turbulent flat-plate/form-factor profile-drag estimate, a lift-dependent drag term, and the local quarter-chord moment. It is labelled `ANALYTIC_ESTIMATE` throughout the UI and snapshot.
+
+This is not XFOIL, a boundary-layer solver, wind-tunnel data, or a first-principles stall model. The smooth lift cap only prevents an unbounded surrogate.
+
+### User station/Reynolds tables
+
+User mode accepts up to 18 tables. Every airfoil station must be covered. Each table contains 7–61 strictly increasing alpha rows with finite `Cl`, positive `Cd`, and finite `Cm`; Reynolds number is 50,000–50,000,000; Mach metadata is 0–0.30 and common across the imported set. Provenance must be `USER_IMPORT`, `XFOIL`, or `EXPERIMENT` with a non-empty label.
+
+The solver interpolates in this order:
+
+1. alpha within each table;
+2. Reynolds number between tables for a station; and
+3. span between the local bracketing airfoil stations, following the same blend/hold rule.
+
+Alpha up to 2° beyond a table is flagged `extrapolated_alpha`; farther alpha and out-of-range Reynolds values are explicitly flagged. Outside-range evaluation clamps at the nearest bounded table edge rather than silently inventing a remote trend. Range-state counts and provenance are retained in every immutable analysis.
+
+## Nonlinear lifting-line and drag
+
+The aerodynamic lattice uses one full-span cosine-spaced row of horseshoe vortices. Bound vortices are at quarter chord, control points are at three-quarter chord, and fixed semi-infinite wake legs extend in `+x` with a small vortex core.
+
+For each strip, the nonlinear solve couples circulation to the active local polar:
 
 ```text
-y_t = 5t(0.2969 sqrt(x) - 0.1260x - 0.3516x^2 + 0.2843x^3 - 0.1036x^4)
+alpha_effective = alpha_trim + theta_geometric + theta_elastic - alpha_induced
+Re = rho V_local c / mu
+Cl_section = SectionPolar(eta, Re, alpha_effective).Cl
+L' = q_local c Cl_section
 ```
 
-which uses the closed-trailing-edge coefficient. Thickness is offset normal to the mean-camber line. Symmetric sections explicitly bypass camber-position division. The aerodynamic solver uses camber only through a numerically integrated thin-airfoil zero-lift angle; thickness affects geometry and the wing box, not lattice aerodynamics.
+The polar residual is solved with Newton updates, line search, and a deterministic fallback. The outer target-lift trim finds the full-wing angle of attack that matches the prescribed lift. Dense solves use scaled partial-pivot LU and residual checks.
 
-## Aerodynamic model
-
-- Steady, incompressible, inviscid, attached potential flow.
-- Full-wing, one chordwise row of cosine-spaced horseshoe vortices.
-- Bound vortices lie on the quarter-chord reference; control points are at the three-quarter-chord offset (`0.5c` aft of the bound line in the implementation's local coordinates).
-- Semi-infinite wake legs extend in fixed `+x` with a core radius of `1e-6` mean aerodynamic chord.
-- The dense influence system uses scaled partial-pivot LU and verifies a relative residual.
-- Kutta–Joukowski force is recovered per strip from the solved circulation.
-- The section normal incorporates geometric twist, elastic twist, and the NACA thin-airfoil zero-lift correction.
-- Angle of attack is bisected within `-8 deg` to `+12 deg` until the current twisted lattice meets the prescribed full-wing target lift.
-- Wake-induced drag is calculated from wake-only induced velocity. It is an estimate of induced drag, not total drag.
-- `fast` uses 16 full-span panels; `standard` uses 32.
-
-The model excludes profile/skin-friction drag, compressibility, viscosity, Reynolds-number effects, stall, separation, transonic effects, ground effect, pitching moment, fuselage/tail interference, control surfaces, and arbitrary wake roll-up. Altitude and viscosity are recorded with the fixed flight-case definition but only supplied density and velocity enter the current equations.
-
-## Wing box and material
-
-The structural section is a single closed four-wall box. Front and rear webs are fixed at `0.20c` and `0.65c`. Their upper/lower endpoints follow the NACA surface ordinates; the skins connect those points. The user may change skin gauge, front/rear web gauges, and the preliminary elastic-axis fraction.
-
-Thin-wall line properties are used:
+Wake-induced drag comes from the wake-only induced velocity. Profile drag is integrated from local section `Cd`:
 
 ```text
-A_wall = sum(t_i l_i)
-I_x = sum[t_i integral(z^2 ds)] - A_wall z_bar^2
-J ~= 4 A_enclosed^2 / sum(l_i/t_i)
-EI = E I_x
-GJ = G J
+D_profile = sum(q_local c Cd_section dy)
+D_wing = D_induced + D_profile
+estimated wing L/D = L / D_wing
 ```
 
-Mass per span is `rho A_wall`, integrated with three-point Gauss quadrature and doubled from semispan to full wing. Gauge must remain below 10% of every local box dimension.
+`D_wing` is a preliminary wing-only value. It excludes fuselage, tail, nacelle, control-surface, interference, cooling, wave, and other aircraft drag. The configured challenge comparison continues to use the wake-induced-drag estimate at matched target lift; V5 profile/combined drag are additional evidence, not a silently changed objective.
 
-The only material is Aluminum 2024-T3:
+## Structure and aeroelastic coupling
 
-| Property | Value |
-|---|---:|
-| Density | 2780 kg/m³ |
-| Young's modulus | 73.1 GPa |
-| Poisson ratio | 0.33 |
-| Shear modulus | `E/[2(1+nu)]` |
-| Yield strength | 345 MPa |
+The structure is a closed four-wall Aluminum 2024-T3 box. Front and rear spars are fixed at 0.20c and 0.65c. Their endpoints follow the exact local airfoil surfaces; skins join the endpoints. Five-point Gauss integration over intervals split at every airfoil station makes wall-mass integration independent of the aerodynamic mesh.
 
-The elastic-axis input is a reference axis, not a computed shear center.
-
-## Beam and stress model
-
-The right semispan is a root-clamped Euler–Bernoulli bending beam plus a torsion rod. Nodes exactly follow positive-side aerodynamic strip boundaries. Variable `EI` and `GJ` are integrated with three-point Gauss quadrature. Uniform per-element aerodynamic force uses the consistent Hermite load vector; total force, root moment, and torque are preserved by the mapping.
-
-Only the vertical component of aerodynamic force drives bending. Strip torque about the elastic axis is
+The right semispan uses Euler–Bernoulli bending and torsion-rod elements at positive-side aerodynamic strip boundaries. Variable `EI` and `GJ` use Gauss quadrature. Torsional loading includes both lift acting relative to the elastic axis and the SectionPolar quarter-chord moment:
 
 ```text
-T_strip = (x_EA/c - 0.25)c F_z
+T' = (x_EA/c - 0.25)c L' + q c² Cm,c/4
 ```
 
-At each wall endpoint, bending stress and closed-cell torsional shear are combined at the same physical location:
+Thin-wall Bredt–Batho torsion, beam bending stress, and coincident-wall von Mises stress are recovered. The modeled yield ratio is `sigma_y / max(sigma_VM)`; it is not a complete safety factor.
 
-```text
-sigma = -M(z-z_bar)/I
-q = T/(2 A_enclosed)
-tau_i = q/t_i
-sigma_vm = sqrt(sigma^2 + 3 tau_i^2)
-yield margin = yield strength / max(sigma_vm)
-```
+Torsional deformation feeds back into the aerodynamic incidence through an under-relaxed fixed-point iteration. Convergence requires the raw-equilibrium residual, relaxed iterate change, load-field change, and target-lift error all to pass, followed by a verification solve. Bending is one-way postprocessing only.
 
-A zero-action station reports a null local yield margin rather than infinity. The summary minimum ignores null stations.
+## Analysis-bound diagnostics
 
-This yield margin omits buckling, crippling, fatigue, damage tolerance, joints, fasteners, ribs, caps, cut-outs, stress concentrations, manufacturing tolerances, load factors, ultimate factors, and certification allowables.
+The 2D Section Flow Lab solves an independent Hess–Smith source/global-vortex potential-flow problem for the exact selected local section. It reports `Cp`, force/moment coefficients, Kutta/source residuals, streamlines, and vectors. The 3D viewport is a committed geometry/load/structure visualization; it is not a CFD field solver.
 
-## Static aeroelastic coupling
+The Efficiency mode reads immutable strip/station data and shows local Reynolds number, sectional lift, profile drag, polar range state, induced/profile/combined drag, and estimated wing L/D. Changing a visualization selection does not mutate the design or rerun the coupled solver.
 
-Aerociency couples torsion in both directions and postprocesses bending:
+See [flow visualization](FLOW_VISUALIZATION.md) for diagnostic-specific limits.
 
-1. Build the full-wing lattice using the current elastic-twist field.
-2. Trim angle of attack to the target lift.
-3. Map vertical force and quarter-chord-to-elastic-axis torque to the beam.
-4. Solve bending and torsion.
-5. Under-relax twist with factor `0.35`.
-6. Repeat, then independently verify the candidate converged iterate.
+## Explicit omissions
 
-Convergence requires at least two iterations and all of:
+Aeroficiency does not model or claim:
 
-| Diagnostic | Tolerance |
-|---|---:|
-| Unrelaxed equilibrium residual | `2e-5 rad` |
-| Relaxed iterate change | `1e-5 rad` |
-| Relative load change | `2e-4` |
-| Relative target-lift error | `1e-5` |
+- first-principles laminar/turbulent boundary layers, transition, roughness, separation, or stall;
+- compressibility, transonic/shock effects, wave drag, ground effect, or free-wake roll-up;
+- fuselage, tail, nacelle, propulsive, control-surface, interference, or whole-aircraft drag;
+- high-fidelity CFD/FEA or experimental correlation of the complete model;
+- bending feedback to aerodynamics;
+- structural self-weight, gravity, manoeuvre inertia, gust, landing, or certification load cases;
+- aeroelastic divergence, flutter, unsteady response, or other dynamics;
+- buckling, crippling, fatigue, damage tolerance, local failure, stress concentrations, joints, or fasteners;
+- manufacturing, cost, systems, controls, stability, handling qualities, or airworthiness approval.
 
-The iteration limit is 40. Elastic twist above 15 degrees or tip bending above 10% of semispan is outside the supported model. Non-convergence is not labeled divergence and cannot satisfy constraints.
-
-## Constraint semantics
-
-Five checks are stored with each immutable snapshot:
-
-1. Structural mass reduction relative to a current baseline at matching fidelity.
-2. Modeled yield margin.
-3. Absolute tip deflection.
-4. Induced-drag increase relative to the same current baseline and flight case.
-5. Aeroelastic convergence.
-
-A missing reference is `unavailable`; a later edit makes the presentation `stale`; a non-converged result cannot pass. Passing these low-order checks does not establish airworthiness.
+Input bounds and passed checks are guardrails for this deterministic preliminary model. They do not establish physical validity, manufacturability, safety, or certification for a real aircraft.

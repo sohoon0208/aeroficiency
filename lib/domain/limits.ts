@@ -17,6 +17,8 @@ export const DESIGN_LIMITS = {
   targetLiftN: [2_000, 120_000],
   velocityMps: [20, 85],
   altitudeM: [0, 11_000],
+  airDensityKgM3: [0.25, 1.5],
+  dynamicViscosityPaS: [1e-5, 2.5e-5],
 } as const;
 
 export const ALUMINUM_2024_T3: MaterialDefinition = {
@@ -29,22 +31,31 @@ export const ALUMINUM_2024_T3: MaterialDefinition = {
   yieldStrengthPa: 345e6,
 };
 
-export const SOLVER_VERSION = 'aerociency-0.2.0';
+export const SOLVER_VERSION = 'aeroficiency-0.5.0';
 export const MAX_ACTIVITY_EVENTS = 80;
 export const MAX_DESIGNS = 6;
 export const MAX_ANALYSES = 24;
 export const MAX_IDEMPOTENCY_RECORDS = 120;
+export const MAX_AIRFOIL_STATIONS = 6;
+export const MIN_AIRFOIL_STATION_SEPARATION = 0.05;
+export const MAX_AIRFOIL_COORDINATE_POINTS = 161;
+export const MAX_POLAR_TABLES = 18;
+export const MAX_POLAR_ROWS = 61;
 
 export const MODEL_WARNINGS = [
   'Preliminary low-order analysis; not for certification.',
-  'Inviscid, incompressible, attached-flow model.',
-  'Profile drag and stall are omitted.',
-  'Camber uses a thin-airfoil zero-lift correction.',
-  'Airfoil thickness does not influence the aerodynamic lattice.',
-  'Airfoil pitching moment is omitted.',
-  'Buckling, fatigue, and local failure modes are omitted.',
+  'Low-order incompressible lifting-line model with section-polar closure.',
+  'Profile drag is a polar-backed preliminary estimate; fuselage and interference drag are omitted.',
+  'The built-in analytic polar is an attached-flow estimate, not experimental or XFOIL correlation.',
+  'User polar range violations are explicit; first-principles stall and separation are not modeled.',
+  'Compressibility effects are omitted.',
+  'Spanwise airfoil camber, thickness, zero-lift angle, and quarter-chord moment are coupled.',
+  'Structural self-weight, gravity, and inertial loads are omitted.',
+  'Divergence, flutter, gust response, and dynamic aeroelasticity are omitted.',
+  'Buckling, fatigue, local failure, and stress concentrations are omitted.',
+  'Joints, fasteners, manufacturing constraints, and certification load cases are omitted.',
   'Bending deformation is not coupled back to aerodynamics.',
-  'Induced drag is a discrete-wake estimate, not total drag.',
+  'Wake-induced drag is a discrete-wake estimate, not total drag.',
 ] as const;
 
 export const SOLVER_SETTINGS = {
@@ -52,6 +63,9 @@ export const SOLVER_SETTINGS = {
   standard: { fullSpanPanelCount: 32 },
   vortexCoreRatio: 1e-6,
   alphaBracketDeg: [-8, 12],
+  requiredTargetCl: [0.15, 1],
+  maxElasticTwistDeg: 15,
+  maxTipDeflectionSemispanFraction: 0.1,
   trimMaxIterations: 48,
   trimRelativeLiftTolerance: 1e-7,
   trimAlphaToleranceRad: 1e-8,

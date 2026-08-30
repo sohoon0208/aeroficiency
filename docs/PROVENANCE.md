@@ -1,8 +1,8 @@
 # Provenance
 
-Aerociency is a clean-start solo project created during the 2026 OpenAI WebMCP Challenge period. No executable Aerociency implementation existed before the challenge work began.
+Aeroficiency is a clean-start solo project created during the 2026 OpenAI WebMCP Challenge period. No executable Aeroficiency implementation existed before the challenge work began.
 
-The intended repository boundary is the `aerociency/` application directory. Private planning notes, eligibility records, travel information, personal correspondence, and attachment files in the parent workspace are outside that boundary and must never be copied into a public release.
+The intended repository boundary is the `aeroficiency/` application directory. Private planning notes, eligibility records, travel information, personal correspondence, and attachment files in the parent workspace are outside that boundary and must never be copied into a public release.
 
 ## Authorship and generation
 
@@ -15,4 +15,17 @@ The intended repository boundary is the `aerociency/` application directory. Pri
 - Pre-existing application code: none.
 - License: MIT.
 
-A local Git repository is established only at `aerociency/`; the parent workspace and private records are outside its root and were excluded by staged-content and privacy scans. No remote is configured and nothing has been published. Publication, hosting, video recording, and submission occur only after the entrant explicitly authorizes them.
+A local Git repository is established only at `aeroficiency/`; the parent workspace and private records are outside its root and were excluded by staged-content and privacy scans. No remote is configured and nothing has been published. Publication, hosting, video recording, and submission occur only after the entrant explicitly authorizes them.
+
+## Sanitized creation evidence
+
+The first repository commit is `d0a03ceca95bee12797daa348d8e5c28534d3ace`, authored on 2026-08-28 at 00:04:07 +08:00, after the challenge began. This identifier is provenance evidence only; it is not the eventual release identity.
+
+At the current local-candidate stage:
+
+- no Git remote is configured;
+- no release tag exists;
+- no public repository, deployment, recording, or submission exists;
+- the public attribution name/email must still be explicitly approved before publication.
+
+The application release identity uses app, solver, and tool-schema versions plus a build-time commit injected through `NEXT_PUBLIC_AEROFICIENCY_COMMIT`. A local build falls back to `local`; the final release commit must not be hard-coded in source.

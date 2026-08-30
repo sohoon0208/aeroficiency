@@ -6,10 +6,10 @@ import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import type { AnalysisSnapshot, WingDesign } from '@/lib/domain/types';
 import { interpolateStationValue } from '@/lib/domain/stations';
-import { nacaSurfacePoint, parseNaca4, sampleNaca4 } from '@/lib/solver/naca';
+import { localAirfoilSection, resolvedAirfoilStations, sectionSurfaceAtX } from '@/lib/solver/airfoilSections';
 import { chordAtY } from '@/lib/solver/planform';
 
-export type ViewMode = 'geometry' | 'aero' | 'structure';
+export type ViewMode = 'geometry' | 'aero' | 'section' | 'performance' | 'structure';
 
 function transformedPoint(design: WingDesign, analysis: AnalysisSnapshot | null, spanCoordinate: number, xOverC: number, zOverC: number, deformed: boolean) {
   const halfSpan = design.geometry.spanM / 2;
@@ -50,8 +50,8 @@ function surfaceGeometry(design: WingDesign, analysis: AnalysisSnapshot | null, 
   const colors: number[] = [];
   const indices: number[] = [];
   const spanStationCount = 32;
-  const section = sampleNaca4(design.geometry.nacaCode, 16);
-  const chordCount = section.length;
+  const chordIntervals = 24;
+  const chordCount = chordIntervals + 1;
   const verticesPerStation = 2 * chordCount;
   const halfSpan = design.geometry.spanM / 2;
 
@@ -59,14 +59,15 @@ function surfaceGeometry(design: WingDesign, analysis: AnalysisSnapshot | null, 
     const spanCoordinate = -halfSpan + design.geometry.spanM * spanIndex / spanStationCount;
     const eta = Math.abs(spanCoordinate) / halfSpan;
     const color = modeColor(analysis, mode, eta, yieldLimit);
+    const section = localAirfoilSection(design.geometry, eta, chordIntervals);
     for (const surface of ['upper', 'lower'] as const) {
-      for (const point of section) {
+      for (const [xOverC, zOverC] of section[surface]) {
         const transformed = transformedPoint(
           design,
           analysis,
           spanCoordinate,
-          surface === 'upper' ? point.xUpper : point.xLower,
-          surface === 'upper' ? point.zUpper : point.zLower,
+          xOverC,
+          zOverC,
           deformed,
         );
         positions.push(transformed.x, transformed.y, transformed.z);
@@ -99,17 +100,17 @@ function WingSurface({ design, analysis, mode, deformed, yieldLimit, wireframe =
 function SparLines({ design, analysis, deformed }: { design: WingDesign; analysis: AnalysisSnapshot | null; deformed: boolean }) {
   const geometry = useMemo(() => {
     const points: THREE.Vector3[] = [];
-    const definition = parseNaca4(design.geometry.nacaCode);
     const halfSpan = design.geometry.spanM / 2;
     for (const fraction of [design.structure.frontSparXOverC, design.structure.rearSparXOverC]) {
-      const section = nacaSurfacePoint(fraction, definition);
-      for (const zOverC of [section.zUpper, section.zLower]) {
+      for (const surface of ['zUpper', 'zLower'] as const) {
         for (let index = 0; index < 32; index += 1) {
           const start = -halfSpan + design.geometry.spanM * index / 32;
           const end = -halfSpan + design.geometry.spanM * (index + 1) / 32;
+          const startSection = sectionSurfaceAtX(localAirfoilSection(design.geometry, Math.abs(start) / halfSpan, 40), fraction);
+          const endSection = sectionSurfaceAtX(localAirfoilSection(design.geometry, Math.abs(end) / halfSpan, 40), fraction);
           points.push(
-            transformedPoint(design, analysis, start, fraction, zOverC, deformed),
-            transformedPoint(design, analysis, end, fraction, zOverC, deformed),
+            transformedPoint(design, analysis, start, fraction, startSection[surface], deformed),
+            transformedPoint(design, analysis, end, fraction, endSection[surface], deformed),
           );
         }
       }
@@ -120,42 +121,54 @@ function SparLines({ design, analysis, deformed }: { design: WingDesign; analysi
   return <lineSegments geometry={geometry}><lineBasicMaterial color="#d9f6ff" transparent opacity={0.7} /></lineSegments>;
 }
 
-function SelectedStation({ design, analysis, eta, deformed }: { design: WingDesign; analysis: AnalysisSnapshot | null; eta: number; deformed: boolean }) {
-  const points = useMemo(() => {
-    const spanCoordinate = eta * design.geometry.spanM / 2;
-    return [
-      transformedPoint(design, analysis, spanCoordinate, 0, 0, deformed),
-      transformedPoint(design, analysis, spanCoordinate, 1, 0, deformed),
-    ];
-  }, [design, analysis, eta, deformed]);
-  const geometry = useMemo(() => new THREE.BufferGeometry().setFromPoints(points), [points]);
+function SectionOutline({ design, analysis, eta, deformed, side = 1, color, opacity = 1 }: { design: WingDesign; analysis: AnalysisSnapshot | null; eta: number; deformed: boolean; side?: -1 | 1; color: string; opacity?: number }) {
+  const geometry = useMemo(() => {
+    const section = localAirfoilSection(design.geometry, eta, 40);
+    const contour = [...section.upper, ...[...section.lower].reverse()];
+    const points: THREE.Vector3[] = [];
+    const spanCoordinate = side * eta * design.geometry.spanM / 2;
+    for (let index = 0; index < contour.length; index += 1) {
+      const current = contour[index];
+      const next = contour[(index + 1) % contour.length];
+      points.push(
+        transformedPoint(design, analysis, spanCoordinate, current[0], current[1], deformed),
+        transformedPoint(design, analysis, spanCoordinate, next[0], next[1], deformed),
+      );
+    }
+    return new THREE.BufferGeometry().setFromPoints(points);
+  }, [analysis, deformed, design, eta, side]);
   useEffect(() => () => geometry.dispose(), [geometry]);
-  return <lineSegments geometry={geometry}><lineBasicMaterial color="#f2b866" /></lineSegments>;
+  return <lineSegments geometry={geometry}><lineBasicMaterial color={color} transparent opacity={opacity} /></lineSegments>;
 }
 
-function Legend({ design, analysis, mode, yieldLimit }: { design: WingDesign; analysis: AnalysisSnapshot | null; mode: ViewMode; yieldLimit: number }) {
-  if (mode === 'geometry') return <div className="viewport-scale"><span className="scale-cyan" />NACA {design.geometry.nacaCode}<b>Spars .20c / .65c</b></div>;
+function AirfoilStationMarkers({ design, analysis, deformed }: { design: WingDesign; analysis: AnalysisSnapshot | null; deformed: boolean }) {
+  const locations = [...new Set(resolvedAirfoilStations(design.geometry).flatMap((station) => station.eta === 0 ? [0] : [station.eta, -station.eta]))];
+  return <>{locations.map((eta) => <SectionOutline key={eta} design={design} analysis={analysis} eta={Math.abs(eta)} side={eta < 0 ? -1 : 1} deformed={deformed} color="#b89cff" opacity={0.58} />)}</>;
+}
+
+function Legend({ design, analysis, mode, yieldLimit, selectedEta }: { design: WingDesign; analysis: AnalysisSnapshot | null; mode: ViewMode; yieldLimit: number; selectedEta: number }) {
+  if (mode === 'geometry') return <div className="viewport-scale"><span className="scale-cyan" />{resolvedAirfoilStations(design.geometry).length} airfoil stations<b>{localAirfoilSection(design.geometry, selectedEta, 40).label} · spars .20c / .65c</b></div>;
   if (mode === 'aero') {
     const peak = analysis ? Math.max(...analysis.stations.map((station) => Math.abs(station.liftPerSpanNpm))) : null;
     return <div className="viewport-scale"><span className="scale-aero" />Lift / span<b>{peak === null ? 'Analysis required' : `0 → ${peak.toFixed(0)} N/m`}</b></div>;
   }
-  return <div className="viewport-scale"><span className="scale-structure" />Modeled yield margin<b>red &lt; {yieldLimit.toFixed(2)}× · green ≥ {(yieldLimit * 1.5).toFixed(2)}×</b></div>;
+  return <div className="viewport-scale"><span className="scale-structure" />Modeled yield ratio<b>red &lt; {yieldLimit.toFixed(2)}× · green ≥ {(yieldLimit * 1.5).toFixed(2)}×</b></div>;
 }
 
 export function WingViewport({ design, baseline, analysis, mode, deformed, selectedEta, yieldLimit }: { design: WingDesign; baseline: WingDesign | null; analysis: AnalysisSnapshot | null; mode: ViewMode; deformed: boolean; selectedEta: number; yieldLimit: number }) {
   const stateLabel = analysis?.status === 'converged' ? `${deformed ? 'deformed' : 'undeformed'} ${mode} model at analysis ${analysis.analysisId}` : `undeformed ${mode} model without a current analysis`;
   return (
-    <div className="wing-viewport" role="img" aria-label={`Three-dimensional wing visualization: ${stateLabel}. Equivalent values are available in the selected-station readout and chart table. Selected right-semispan station eta ${selectedEta.toFixed(2)}.`}>
+    <div className="wing-viewport" role="group" aria-label={`Three-dimensional wing visualization: ${stateLabel}. Equivalent values are available in the selected-station readout and chart table. Selected right-semispan station eta ${selectedEta.toFixed(2)}.`}>
       <Canvas dpr={[1, 2]} camera={{ position: [8, 5.8, 10], fov: 34 }} gl={{ antialias: true, alpha: false }}>
         <color attach="background" args={['#061019']} /><ambientLight intensity={1.1} /><directionalLight position={[5, 9, 4]} intensity={2.2} color="#d9f4ff" /><directionalLight position={[-5, 2, -6]} intensity={0.8} color="#79a7ff" /><gridHelper args={[24, 24, '#294253', '#142533']} position={[0, -1.35, 0]} />
         {baseline && baseline.designId !== design.designId && <WingSurface design={baseline} analysis={null} mode="geometry" deformed={false} yieldLimit={yieldLimit} wireframe />}
         <WingSurface design={design} analysis={analysis} mode={mode} deformed={deformed} yieldLimit={yieldLimit} />
-        {mode === 'geometry' && <SparLines design={design} analysis={analysis} deformed={deformed} />}
-        <SelectedStation design={design} analysis={analysis} eta={selectedEta} deformed={deformed} />
+        {mode === 'geometry' && <><SparLines design={design} analysis={analysis} deformed={deformed} /><AirfoilStationMarkers design={design} analysis={analysis} deformed={deformed} /></>}
+        <SectionOutline design={design} analysis={analysis} eta={selectedEta} deformed={deformed} color="#f2b866" />
         <OrbitControls makeDefault enablePan={false} minDistance={8} maxDistance={24} target={[0.6, 0, 0]} />
       </Canvas>
       <div className="viewport-hud top"><span>3D VIEW</span><span>η {selectedEta.toFixed(2)}</span></div>
-      <Legend design={design} analysis={analysis} mode={mode} yieldLimit={yieldLimit} />
+      <Legend design={design} analysis={analysis} mode={mode} yieldLimit={yieldLimit} selectedEta={selectedEta} />
       <div className="viewport-hud bottom"><span><i className="candidate-key" /> {design.kind === 'baseline' ? 'Baseline' : design.label}</span>{baseline && design.kind === 'candidate' && <span><i className="baseline-key" /> Baseline reference</span>}<span>{deformed ? 'Bending ×6 · twist ×1' : 'Undeformed'}</span></div>
     </div>
   );

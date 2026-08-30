@@ -1,31 +1,36 @@
-# Aerociency
+# Aeroficiency
 
-Aerociency is a browser-based preliminary wing co-design workspace for a human and an AI agent. Both operate one visible, revisioned engineering model: inspect a protected baseline, branch a candidate, change bounded geometry or wing-box gauges, run the same local solver, and compare immutable results.
+Aeroficiency is a browser-based preliminary wing co-design workspace for a human and an AI agent. Both work on one visible, revisioned engineering model: edit the current Baseline, branch one or more candidates, choose which design is the Baseline reference, change bounded planform, spanwise airfoils, section polars, and wing-box gauges, run the same local solver, and compare immutable results.
 
-> Aerociency supports preliminary design exploration only. It is not a flight-safety, certification, manufacturing, flutter, fatigue, buckling, CFD, or high-fidelity FEA tool.
+> Aeroficiency is for aerospace education and early concept trade studies. It is not a flight-safety, certification, manufacturing, CFD, high-fidelity FEA, flutter, fatigue, or buckling tool.
 
-![Aerociency technical preview](public/og.png)
+![Aeroficiency technical preview](public/og.png)
 
-## Why WebMCP matters
+## Challenge fit
 
-An agent should not have to infer engineering state from sliders, plots, and a 3D viewport. The checked-in adapter defines eight narrow page-scoped Site Tools and registers them through `document.modelContext.registerTool` when that API is available. Tools read explicit revisions, mutate candidates through the same domain commands as the ordinary UI, run the worker-backed solver, and leave visible activity entries. Local runtime discovery passed; production-origin discovery in the final supported browser/model remains a release gate.
+The project is designed around WebMCP rather than merely adding tools to an unrelated site. An agent can read exact engineering state, create a candidate, change the Baseline reference, make bounded changes, run the solver, focus visible evidence, and compare exact immutable analyses. These actions are exposed as nine narrow page-scoped Site Tools through `document.modelContext.registerTool` when WebMCP is available.
 
-The human keeps control of the baseline, sees every mutation and warning, can edit normally without WebMCP, and makes the final engineering judgment.
+The normal UI and Site Tools call the same domain commands. Exactly one design holds the editable Baseline role, comparison remains unavailable until at least one candidate exists, writes require explicit revisions and idempotency keys, stale writes fail closed, and accepted agent actions appear immediately in the controls, plots, results, and activity log. The application remains fully usable by a human when WebMCP is unavailable.
 
-## Current release status
+## Release status
 
-The local release candidate completed its 2026-08-28 verification gate: a clean Git archive installs, lints, type-checks, verifies licenses, passes all 50 tests, reports zero audited vulnerabilities, and builds. The local in-app browser discovered exactly eight Site Tools and completed the baseline → candidate → analyze → compare workflow through those registered tools. Both the Vinext production server and generated Cloudflare Worker returned the intended security headers on `/`.
+Release identity: app `0.5.0`, solver `aeroficiency-0.5.0`, tool schema `aeroficiency-webmcp-1.3`.
 
-Hosted CI, model-driven 9/10 reliability, public-origin/browser checks, and the frozen-release recording remain release gates. Public hosting, repository publication, the final demo video, and Devpost submission are intentionally pending; no URL in this README should be treated as live until it is replaced and verified.
+The V4/V5 implementation is complete locally:
+
+- V4: two to six user-positioned airfoil stations, supported NACA four-digit or imported coordinate definitions, local camber/thickness interpolation, local zero-lift angle and quarter-chord moment, spanwise 3D loft, and local wing-box geometry.
+- V5: generated attached-flow section polars or bounded user-imported station/Reynolds tables, nonlinear section-polar lifting-line closure, local Reynolds number, profile drag, combined wing drag, estimated wing L/D, range diagnostics, and polar-linked torsional loading.
+- UI: separate Planform/Airfoils/Structure/Case editors; five linked engineering views; and Overview/Checks/Compare/Log result sections.
+
+The implementation is release-ready locally. Public repository publication, a judge-accessible deployment, recording, and final submission remain explicit owner actions. No URL should be treated as final until its logged-out live-origin checks pass.
 
 | Artifact | Status |
 |---|---|
-| Local source implementation | Verified locally on 2026-08-28 |
-| Eight-tool WebMCP contract | Exactly eight discovered and invoked locally; model reliability pending |
-| Clean-copy gate and CI | Clean-copy gate passed; hosted CI pending |
-| Live site | `PENDING_PUBLICATION` |
-| Public source repository | `PENDING_PUBLICATION` |
-| Demo video | `PENDING_RECORDING` |
+| Local V1–V5 implementation | Complete and under local release verification |
+| Nine-tool WebMCP contract | Implemented and locally exercised |
+| Public site/repository | Pending explicit publication approval |
+| Demo recording | Pending |
+| Challenge submission | Pending |
 
 ## Run locally
 
@@ -36,12 +41,11 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`. In a browser without WebMCP, the complete manual workflow remains available and the Site Tools badge reports that agent tools are unavailable.
+Open `http://localhost:3000`. A browser without WebMCP shows a manual-mode badge; all engineering controls still work.
 
-Release-gate commands to run and record before publication:
+Local release checks:
 
 ```bash
-npm ci
 npm run lint
 npm run typecheck
 npm run test:run
@@ -50,110 +54,132 @@ npm run build
 npm audit --audit-level=high
 ```
 
-The production build currently reports two understood, non-failing Vinext/Rolldown notices: the deliberately single-page Three.js visualization chunk exceeds the generic 500 kB suggestion, and Vinext cannot statically classify the root route because runtime headers are configured. The local production and generated-worker paths were exercised after the build; these notices do not replace the required live-origin checks.
-
-Run the production build locally with:
+Or run the complete gate in one command:
 
 ```bash
-npm run build
-npm run start
+npm run release:check
 ```
+
+## Deployment
+
+The production build targets a Cloudflare Worker through Vinext/Vite. A free Cloudflare Workers account is sufficient for this client-side challenge application; no database, object storage, paid service, application secret, or OpenAI API key is required.
+
+```bash
+# Local production-runtime preview
+npm run preview:cloudflare
+
+# Public deployment — run only after choosing the public account and hostname
+npm run deploy:cloudflare
+```
+
+Set `NEXT_PUBLIC_SITE_URL` to the final HTTPS origin before the public release so canonical and social metadata never point to localhost. See [deployment](docs/DEPLOYMENT.md) for the exact release procedure and [Devpost field guide](docs/DEVPOST_FIELD_GUIDE.md) for the application handoff.
 
 ## Product workflow
 
-1. Reset to the deterministic baseline.
-2. Run the baseline at standard fidelity.
-3. Create a candidate; the baseline remains immutable.
-4. Change allowlisted geometry or structure values through the UI or Site Tools.
-5. Run a current-revision aeroelastic analysis.
-6. Inspect span stations and compare current immutable analyses.
-7. Review constraints, warnings, revisions, and activity before making a decision.
+1. Reset to the deterministic reference case.
+2. Adjust and run the editable Baseline at standard fidelity.
+3. Create at least one candidate to unlock comparison.
+4. Edit planform, user-positioned airfoil stations, polar source, or wing-box values.
+5. Run a revision-checked coupled analysis.
+6. Inspect local section, Reynolds, drag, flow, load, and structural evidence.
+7. Compare exact current baseline and candidate analyses.
+8. Review all five configured checks, warnings, revisions, and activity before deciding.
 
-The deterministic demo candidate changes the baseline skin gauge from `1.80 mm` to `1.65 mm` and both web gauges from `2.20 mm` to `2.00 mm`. A direct check of solver version `aerociency-0.2.0` converged in 13 coupling iterations for both designs and produced about 8.49% modeled structural-mass reduction while satisfying all five configured candidate checks. This is a local numerical fixture, not browser/CI release evidence, an optimization claim, or a recommendation for a real aircraft.
+The canonical challenge scenario deliberately uses two structural proposals. The first, `1.75 / 2.10 / 2.10 mm`, does not meet the 5% modeled wall-mass objective. The corrected `1.65 / 2.00 / 2.00 mm` candidate gives about 8.49% modeled wall-mass reduction and passes all five checks in the frozen V5 fixture. The wake-induced-drag change is numerically tiny and is described as no meaningful improvement. Profile and combined wing drag are reported as additional V5 evidence, not as whole-aircraft drag or as configured optimization checks.
 
-## The eight Site Tools
+## The nine Site Tools
 
 | Tool | Mode | Purpose |
 |---|---|---|
-| `get_design_state` | Read | Read designs, revisions, constraints, freshness, and recent activity |
-| `get_analysis_summary` | Read | Read bounded metrics and warnings for one immutable analysis |
-| `inspect_span_station` | Read | Resolve and inspect one right-semispan solver station |
+| `get_design_state` | Read | Read bounded project/design state, revisions, airfoil stations, and polar metadata |
+| `get_analysis_summary` | Read | Read a compact immutable V5 analysis summary and model-validity contract |
+| `inspect_span_station` | Presentation | Focus one current right-semispan solver station |
 | `create_candidate_variant` | Write | Idempotently branch a candidate from an explicit source revision |
-| `update_wing_geometry` | Write | Apply a bounded absolute geometry patch to a candidate |
-| `update_wing_structure` | Write | Apply bounded gauges or elastic-axis location to a candidate |
-| `run_aeroelastic_analysis` | Write | Run one revision-checked analysis; converged results become current |
-| `compare_designs` | Read | Compare two distinct current compatible snapshots without rerunning them |
+| `set_baseline_design` | Write | Make a candidate the Baseline reference while retaining the former Baseline as a candidate |
+| `update_wing_geometry` | Write | Apply bounded planform, airfoil-station, or polar-model changes |
+| `update_wing_structure` | Write | Apply bounded gauges or elastic-axis position |
+| `run_aeroelastic_analysis` | Write | Run one revision-checked analysis and commit a validated snapshot |
+| `compare_designs` | Presentation | Pin an exact current baseline/candidate analysis pair without rerunning |
 
-Every write uses an expected revision and UUID idempotency key. The baseline-protection rule, model bounds, stale-write rejection, snapshot validation, and bounded in-memory ledgers are enforced below the UI. See [WebMCP tools](docs/WEBMCP_TOOLS.md) and [evals](docs/EVALS.md).
+The inventory is exactly two reads, two presentation actions, and five engineering writes. Presentation actions never alter engineering revisions or analyses. See [WebMCP tools](docs/WEBMCP_TOOLS.md) and [evals](docs/EVALS.md).
 
 ## Architecture
 
 ```text
 Human controls ─┐
-                ├─> Zustand action layer ─> pure domain commands ─> shared project state
+                ├─> shared action layer ─> pure domain commands ─> revisioned state
 Site Tools ─────┘                                      │
                                                       v
-                                     dedicated analysis Web Worker
+                                           analysis Web Worker
                                                       │
-                      VLM + wing box + beam FEM + torsional coupling
+                 nonlinear section-polar lifting line + target-lift trim
+                             ↕ torsional fixed-point coupling
+                   local airfoil/wing box + beam/torsion structure
                                                       │
                                                       v
-                     immutable snapshot ─> validated commit ─> 3D, plots, results, activity
+                    validated immutable V5 snapshot and diagnostics
+                              │                       │
+                              v                       v
+                    3D geometry/load/structure   linked 2D panel lab
 ```
 
-The browser contains the entire challenge workflow. There is no application database, computational backend, OpenAI API call, account, or secret. State is intentionally deterministic and in-memory for the challenge slice; refresh/reset starts a clean workspace.
+There is no application database, computational backend, account, OpenAI API call, or secret. State is deterministic and in memory for this challenge slice. Reset or refresh starts a clean workspace.
 
-Main implementation boundaries:
+Main boundaries:
 
-- `lib/domain/`: state types, validation, fingerprints, and pure commands
-- `lib/solver/`: NACA geometry, aerodynamic lattice, wing box, beam FEM, and coupling
-- `workers/` and `services/`: cancellable worker execution and stale-commit checks
-- `store/`: the shared UI/tool action layer
-- `webmcp/`: feature detection, registration lifecycle, schemas, and tool handlers
-- `components/`: responsive controls, 3D model, plots, results, and activity UI
-- `tests/`: deterministic solver, domain, snapshot, and WebMCP checks
+- `lib/domain/`: types, limits, validation, fingerprints, and pure commands
+- `lib/solver/`: local airfoil resolution, section polars, aerodynamic lattice, wing box, beam/torsion, panel diagnostics, and coupling
+- `lib/visualization/`: section-condition projection for the linked 2D lab
+- `workers/` and `services/`: cancellable analysis worker and stale-commit protection
+- `store/`: shared UI/tool actions and transient presentation state
+- `webmcp/`: discovery, strict schemas, bounded outputs, and handlers
+- `components/`: responsive design editors, 3D/2D diagnostics, plots, and results
+- `tests/`: deterministic solver, domain, UI, and WebMCP regression coverage
 
-The hosting scaffold uses ChatGPT Sites with Vinext/Vite and a Cloudflare Worker runtime. It should not be described as a plain Cloudflare Pages build.
+The hosting scaffold uses ChatGPT Sites with Vinext/Vite and a Cloudflare Worker runtime. Hosting is not performed until explicitly authorized.
 
 ## Engineering model at a glance
 
-- SI units throughout; `x` aft, `y` starboard, `z` up.
+- SI units; `+x` aft, `+y` starboard, `+z` up.
 - Symmetric, zero-sweep, zero-dihedral trapezoidal planform.
-- One NACA four-digit section across the span; closed trailing edge.
-- Full-wing cosine-spaced one-row horseshoe lattice with quarter-chord bound vortices.
-- Target-lift trim on every aeroelastic iteration and wake-only induced-drag estimate.
-- Closed thin-walled box from `0.20c` to `0.65c`, Aluminum 2024-T3.
-- Right-semispan Euler–Bernoulli bending and torsion-rod elements; full-wing mass.
-- Two-way torsional coupling with under-relaxation; bending is postprocessed only.
-- Yield margin includes modeled bending and torsion at coincident wall locations.
+- Two to six ordered airfoil stations at user-set normalized semispan locations.
+- NACA four-digit sections or bounded imported contours, normalized and cosine-resampled.
+- Local camber/thickness blending drives the wing loft, wing-box walls, zero-lift angle, and quarter-chord moment.
+- Full-wing cosine-spaced, one-row horseshoe lattice with nonlinear SectionPolar closure and target-lift trim.
+- Local Reynolds interpolation from generated or user-supplied polars; spanwise profile-drag integration.
+- Wake-induced drag plus profile drag gives a preliminary combined wing-drag estimate and wing L/D.
+- 3D geometry, aero-load, and structure views that read the committed analysis snapshot.
+- Independent linked Hess–Smith 2D section diagnostic with `Cp`, force/moment, and residual checks.
+- Closed thin-walled Aluminum 2024-T3 wing box; right-semispan bending/torsion and full-wing wall mass.
+- Two-way torsional coupling; bending deformation is postprocessed and does not feed back to aerodynamics.
+- Modeled yield ratio is `σy / max(σVM)` at coincident wall locations.
 
-Permanent omissions include profile drag, stall, pitching moment, bending feedback, divergence, flutter, buckling, fatigue, crippling, local stress concentrations, composites, control surfaces, and certification factors. Full conventions and equations are in [model assumptions](docs/MODEL_ASSUMPTIONS.md); supporting checks are in [validation](docs/VALIDATION.md).
+The built-in polar is a transparent attached-flow estimate, not XFOIL or experimental correlation. User tables retain provenance and explicit alpha/Reynolds range states. The model still omits first-principles boundary layers, transition, turbulence, separation and stall; compressibility/transonic effects; free-wake roll-up; fuselage/tail/nacelle/interference and other whole-aircraft drag; structural weight and inertial load cases; bending feedback; dynamic aeroelasticity; buckling/fatigue/local failure; manufacturing detail; and certification analysis. See [model assumptions](docs/MODEL_ASSUMPTIONS.md), [section visualization](docs/FLOW_VISUALIZATION.md), and [validation](docs/VALIDATION.md).
 
-## Safety and failure behavior
+## Safety and failure behaviour
 
-- Invalid or non-finite inputs are rejected before state mutation.
-- The baseline cannot be edited.
-- Human and agent writes share validators and revision checks.
-- Reused idempotency keys replay only an identical request.
-- Results become stale when their design or dependency revisions change.
-- A worker result is discarded if any expected revision or fingerprint changed.
-- Failed, aborted, conflicted, or non-converged runs do not replace the last current converged result. A validated non-converged snapshot may be retained for diagnostics and is returned as `ANALYSIS_DID_NOT_CONVERGE` with unavailable constraints.
-- Non-converged results cannot pass constraints.
-- Tool labels and outputs are bounded; no tool is open-world or destructive.
+- Invalid, non-finite, incomplete, or out-of-order data is rejected before mutation.
+- Imported contours are checked for closure/orientation, usable thickness, and self-intersection.
+- User polar rows require bounded provenance, strictly increasing alpha, positive drag, station coverage, and consistent Mach metadata.
+- Exactly one design is the editable Baseline reference; changing it or changing its role makes dependent comparisons stale.
+- Every write uses optimistic revision checks; stale worker results are discarded.
+- Idempotent replays cannot duplicate accepted work while retained; evicted old requests fail on stale revisions.
+- Failed, aborted, conflicted, or non-converged runs never replace the last current converged result.
+- Non-converged constraints are all unavailable and cannot be presented as passes.
+- Site Tool payloads use strict closed schemas, stable public errors, bounded histories, and frozen output ceilings.
+- Model limitations stay visible in the header scope dialog and result log.
 
-See [security policy](SECURITY.md). Production response headers must still be verified on the eventual live origin; checked-in configuration alone is not deployment evidence.
+## Challenge provenance and license
 
-## Challenge and provenance
+Aeroficiency is a clean-start solo project created during the 2026 OpenAI WebMCP Challenge. The sanitized record is in [provenance](docs/PROVENANCE.md). Private eligibility, travel, credentials, correspondence, and planning attachments are outside the repository boundary.
 
-Aerociency is a clean-start solo project created during the 2026 OpenAI WebMCP Challenge. The sanitized provenance record is in [PROVENANCE.md](docs/PROVENANCE.md). Private eligibility or travel records are deliberately excluded from this repository.
-
-Prepared but unpublished release materials:
+Prepared release materials:
 
 - [submission copy](docs/SUBMISSION_COPY.md)
+- [Devpost field guide](docs/DEVPOST_FIELD_GUIDE.md)
 - [demo script](docs/DEMO_SCRIPT.md)
+- [deployment guide](docs/DEPLOYMENT.md)
 - [release checklist](docs/RELEASE_CHECKLIST.md)
 - [third-party notices](THIRD_PARTY_NOTICES.md)
 
-## License
-
-Aerociency is released under the [MIT License](LICENSE). Third-party packages and their own terms are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Aeroficiency is released under the [MIT License](LICENSE). Third-party packages and their terms are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

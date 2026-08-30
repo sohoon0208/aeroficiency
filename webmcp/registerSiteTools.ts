@@ -1,13 +1,15 @@
 'use client';
 
 import { useProjectStore } from '@/store/projectStore';
-import { AEROCIENCY_TOOLS } from './tools';
+import { AEROFICIENCY_TOOLS } from './tools';
+
+export const AEROFICIENCY_TOOL_COUNT = AEROFICIENCY_TOOLS.length;
 
 interface ModelContext {
   registerTool: (tool: unknown, options: { signal: AbortSignal }) => void | Promise<void>;
 }
 
-export function registerAerociencySiteTools() {
+export function registerAeroficiencySiteTools() {
   const store = useProjectStore.getState();
   const modelContext = (document as Document & { modelContext?: ModelContext }).modelContext;
   if (!modelContext?.registerTool) {
@@ -20,7 +22,7 @@ export function registerAerociencySiteTools() {
 
   void (async () => {
     try {
-      for (const tool of AEROCIENCY_TOOLS) {
+      for (const tool of AEROFICIENCY_TOOLS) {
         await modelContext.registerTool(tool, { signal: controller.signal });
         if (disposed || controller.signal.aborted) return;
       }

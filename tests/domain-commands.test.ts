@@ -3,11 +3,13 @@ import {
   commitAnalysisSnapshot,
   createCandidateVariant,
   preflightAnalysisRun,
+  setBaselineDesign,
   updateWingGeometry,
   updateWingStructure,
 } from '@/lib/domain/commands';
 import { createDefaultProject } from '@/lib/domain/defaults';
 import { createIdempotencyKey } from '@/lib/domain/ids';
+import { MAX_IDEMPOTENCY_RECORDS } from '@/lib/domain/limits';
 import { evaluateDesignConstraints } from '@/lib/domain/constraints';
 import { designAnalysisFreshness, validateStructure } from '@/lib/domain/validation';
 import type { AnalysisSnapshot, ProjectState, SolverFidelity } from '@/lib/domain/types';
@@ -18,6 +20,7 @@ function runRequest(state: ProjectState, fidelity: SolverFidelity = 'fast') {
   return {
     designId: design.designId,
     expectedDesignRevision: design.revision,
+    expectedProjectRevision: state.projectRevision,
     expectedFlightCaseRevision: state.flightCase.revision,
     expectedConstraintsRevision: state.constraints.revision,
     idempotencyKey: createIdempotencyKey(),
@@ -29,6 +32,7 @@ function branchCandidate(state: ProjectState, label = 'Candidate A') {
   const baseline = state.designs[state.activeDesignId];
   const branch = createCandidateVariant(state, {
     sourceDesignId: baseline.designId,
+    expectedProjectRevision: state.projectRevision,
     expectedSourceDesignRevision: baseline.revision,
     candidateLabel: label,
     idempotencyKey: createIdempotencyKey(),
@@ -44,6 +48,7 @@ describe('domain mutation and snapshot boundaries', () => {
     expect(validateStructure({ ...baseline.structure, elasticAxisXOverC: Number.NaN })).not.toHaveLength(0);
     const branch = createCandidateVariant(state, {
       sourceDesignId: baseline.designId,
+      expectedProjectRevision: state.projectRevision,
       expectedSourceDesignRevision: baseline.revision,
       candidateLabel: 'Candidate A',
       idempotencyKey: createIdempotencyKey(),
@@ -67,6 +72,7 @@ describe('domain mutation and snapshot boundaries', () => {
     const baseline = state.designs[state.activeDesignId];
     const request = {
       sourceDesignId: baseline.designId,
+      expectedProjectRevision: state.projectRevision,
       expectedSourceDesignRevision: baseline.revision,
       candidateLabel: 'Candidate A',
       idempotencyKey: createIdempotencyKey(),
@@ -78,30 +84,112 @@ describe('domain mutation and snapshot boundaries', () => {
     expect(Object.keys(second.state.designs)).toHaveLength(2);
   });
 
-  it('protects the baseline, rejects stale revisions, and rejects idempotency-key payload drift', () => {
+  it('fails closed instead of duplicating candidate creation after the bounded replay record is evicted', () => {
+    const initial = createDefaultProject();
+    const baseline = initial.designs[initial.activeDesignId];
+    const originalRequest = {
+      sourceDesignId: baseline.designId,
+      expectedProjectRevision: initial.projectRevision,
+      expectedSourceDesignRevision: baseline.revision,
+      candidateLabel: 'Eviction-safe candidate',
+      idempotencyKey: createIdempotencyKey(),
+    };
+    const created = createCandidateVariant(initial, originalRequest, 'agent');
+    expect(created.result.ok).toBe(true);
+    if (!created.result.ok) return;
+    let state = created.state;
+    const candidateId = created.result.data.designId;
+    for (let index = 0; index < MAX_IDEMPOTENCY_RECORDS; index += 1) {
+      const design = state.designs[candidateId];
+      const transition = updateWingStructure(state, {
+        designId: candidateId,
+        expectedDesignRevision: design.revision,
+        idempotencyKey: createIdempotencyKey(),
+        patch: { skinThicknessMm: index % 2 === 0 ? 1.7 : 1.71 },
+      }, 'agent');
+      expect(transition.result.ok).toBe(true);
+      if (!transition.result.ok) return;
+      state = transition.state;
+    }
+    expect(Object.keys(state.idempotencyLedger)).toHaveLength(MAX_IDEMPOTENCY_RECORDS);
+    const designCount = Object.keys(state.designs).length;
+    const replayAfterEviction = createCandidateVariant(state, originalRequest, 'agent');
+    expect(replayAfterEviction.result.ok).toBe(false);
+    if (!replayAfterEviction.result.ok) {
+      expect(replayAfterEviction.result.error.code).toBe('REVISION_CONFLICT');
+      expect(replayAfterEviction.result.error.current?.projectRevision).toBe(state.projectRevision);
+    }
+    expect(Object.keys(replayAfterEviction.state.designs)).toHaveLength(designCount);
+    expect(replayAfterEviction.state).toBe(state);
+  });
+
+  it('fails closed instead of relaunching an analysis after its bounded replay record is evicted', () => {
+    let state = createDefaultProject();
+    const baseline = state.designs[state.activeDesignId];
+    const originalRequest = runRequest(state);
+    const committed = commitAnalysisSnapshot(state, originalRequest, buildAnalysisSnapshot(state, baseline, 'fast'), 'solver');
+    expect(committed.result.ok).toBe(true);
+    if (!committed.result.ok) return;
+    state = committed.state;
+    const branch = createCandidateVariant(state, {
+      sourceDesignId: baseline.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedSourceDesignRevision: baseline.revision,
+      candidateLabel: 'Ledger filler candidate',
+      idempotencyKey: createIdempotencyKey(),
+    }, 'agent');
+    expect(branch.result.ok).toBe(true);
+    if (!branch.result.ok) return;
+    state = branch.state;
+    const candidateId = branch.result.data.designId;
+    for (let index = 0; index < MAX_IDEMPOTENCY_RECORDS; index += 1) {
+      const design = state.designs[candidateId];
+      const transition = updateWingStructure(state, {
+        designId: candidateId,
+        expectedDesignRevision: design.revision,
+        idempotencyKey: createIdempotencyKey(),
+        patch: { skinThicknessMm: index % 2 === 0 ? 1.7 : 1.71 },
+      }, 'agent');
+      expect(transition.result.ok).toBe(true);
+      if (!transition.result.ok) return;
+      state = transition.state;
+    }
+    const analysisCount = Object.keys(state.analyses).length;
+    const replayAfterEviction = preflightAnalysisRun(state, originalRequest);
+    expect(replayAfterEviction.ok).toBe(false);
+    if (!replayAfterEviction.ok) expect(replayAfterEviction.error.code).toBe('REVISION_CONFLICT');
+    expect(Object.keys(state.analyses)).toHaveLength(analysisCount);
+  });
+
+  it('edits the Baseline, rejects stale revisions, and rejects idempotency-key payload drift', () => {
     const state = createDefaultProject();
     const baseline = state.designs[state.activeDesignId];
-    const protectedUpdate = updateWingGeometry(state, {
+    const baselineUpdate = updateWingGeometry(state, {
       designId: baseline.designId,
       expectedDesignRevision: baseline.revision,
       idempotencyKey: createIdempotencyKey(),
       patch: { tipTwistDeg: -1.5 },
     }, 'human');
-    expect(protectedUpdate.result.ok).toBe(false);
-    if (!protectedUpdate.result.ok) expect(protectedUpdate.result.error.code).toBe('BASELINE_PROTECTED');
-    expect(protectedUpdate.state).toBe(state);
+    expect(baselineUpdate.result.ok).toBe(true);
+    expect(baselineUpdate.state).not.toBe(state);
+    expect(baselineUpdate.state.designs[baseline.designId]).toMatchObject({ kind: 'baseline', revision: 2, geometry: { tipTwistDeg: -1.5 } });
+
+    const branchState = baselineUpdate.state;
+    const editableBaseline = branchState.designs[baseline.designId];
 
     const key = createIdempotencyKey();
-    const firstBranch = createCandidateVariant(state, {
-      sourceDesignId: baseline.designId,
-      expectedSourceDesignRevision: baseline.revision,
+    const firstBranch = createCandidateVariant(branchState, {
+      sourceDesignId: editableBaseline.designId,
+      expectedProjectRevision: branchState.projectRevision,
+      expectedSourceDesignRevision: editableBaseline.revision,
       candidateLabel: 'Candidate A',
       idempotencyKey: key,
     }, 'agent');
     expect(firstBranch.result.ok).toBe(true);
     const mismatchedReplay = createCandidateVariant(firstBranch.state, {
-      sourceDesignId: baseline.designId,
-      expectedSourceDesignRevision: baseline.revision,
+      sourceDesignId: editableBaseline.designId,
+      expectedProjectRevision: branchState.projectRevision,
+      expectedSourceDesignRevision: editableBaseline.revision,
       candidateLabel: 'Different payload',
       idempotencyKey: key,
     }, 'agent');
@@ -132,6 +220,75 @@ describe('domain mutation and snapshot boundaries', () => {
     expect(staleUpdate.state).toBe(firstUpdate.state);
   });
 
+  it('promotes a candidate to Baseline, preserves both designs, and stales every reference-dependent analysis', () => {
+    let state = createDefaultProject();
+    const originalBaseline = state.designs[state.activeDesignId];
+    const baselineRequest = runRequest(state);
+    const baselineSnapshot = buildAnalysisSnapshot(state, originalBaseline, 'fast');
+    const baselineRun = commitAnalysisSnapshot(state, baselineRequest, baselineSnapshot, 'solver');
+    if (!baselineRun.result.ok) throw new Error(baselineRun.result.error.message);
+    state = baselineRun.state;
+
+    const branch = createCandidateVariant(state, {
+      sourceDesignId: originalBaseline.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedSourceDesignRevision: originalBaseline.revision,
+      candidateLabel: 'Candidate A',
+      idempotencyKey: createIdempotencyKey(),
+    }, 'human');
+    if (!branch.result.ok) throw new Error(branch.result.error.message);
+    state = branch.state;
+    const candidate = state.designs[branch.result.data.designId];
+    const candidateRequest = runRequest(state);
+    const candidateSnapshot = buildAnalysisSnapshot(state, candidate, 'fast');
+    const candidateRun = commitAnalysisSnapshot(state, candidateRequest, candidateSnapshot, 'solver');
+    if (!candidateRun.result.ok) throw new Error(candidateRun.result.error.message);
+    state = candidateRun.state;
+
+    const secondBranch = createCandidateVariant(state, {
+      sourceDesignId: originalBaseline.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedSourceDesignRevision: state.designs[originalBaseline.designId].revision,
+      candidateLabel: 'Candidate B',
+      idempotencyKey: createIdempotencyKey(),
+    }, 'human');
+    if (!secondBranch.result.ok) throw new Error(secondBranch.result.error.message);
+    state = secondBranch.state;
+    const secondCandidate = state.designs[secondBranch.result.data.designId];
+    const secondCandidateRequest = runRequest(state);
+    const secondCandidateSnapshot = buildAnalysisSnapshot(state, secondCandidate, 'fast');
+    const secondCandidateRun = commitAnalysisSnapshot(state, secondCandidateRequest, secondCandidateSnapshot, 'solver');
+    if (!secondCandidateRun.result.ok) throw new Error(secondCandidateRun.result.error.message);
+    state = secondCandidateRun.state;
+    expect(designAnalysisFreshness(state, state.designs[originalBaseline.designId])).toBe('current');
+    expect(designAnalysisFreshness(state, state.designs[candidate.designId])).toBe('current');
+    expect(designAnalysisFreshness(state, state.designs[secondCandidate.designId])).toBe('current');
+
+    const promoted = setBaselineDesign(state, {
+      designId: candidate.designId,
+      expectedProjectRevision: state.projectRevision,
+      expectedDesignRevision: candidate.revision,
+      idempotencyKey: createIdempotencyKey(),
+    }, 'human');
+    if (!promoted.result.ok) throw new Error(promoted.result.error.message);
+    const next = promoted.state;
+    expect(Object.values(next.designs).filter((design) => design.kind === 'baseline')).toHaveLength(1);
+    expect(next.designs[candidate.designId]).toMatchObject({ kind: 'baseline', revision: candidate.revision + 1 });
+    expect(next.designs[originalBaseline.designId]).toMatchObject({ kind: 'candidate', revision: originalBaseline.revision + 1 });
+    expect(next.designs[candidate.designId].geometry).toEqual(candidate.geometry);
+    expect(next.designs[originalBaseline.designId].geometry).toEqual(originalBaseline.geometry);
+    expect(designAnalysisFreshness(next, next.designs[candidate.designId])).toBe('stale');
+    expect(designAnalysisFreshness(next, next.designs[originalBaseline.designId])).toBe('stale');
+    expect(designAnalysisFreshness(next, next.designs[secondCandidate.designId])).toBe('stale');
+    expect(promoted.result.data.invalidatedAnalysisIds).toEqual(expect.arrayContaining([
+      baselineRun.result.data.analysisId,
+      candidateRun.result.data.analysisId,
+      secondCandidateRun.result.data.analysisId,
+    ]));
+    expect(promoted.result.data.invalidatedAnalysisIds).toHaveLength(3);
+    expect(next.activities[0].operation).toBe('set_baseline_design');
+  });
+
   it('rejects a late worker result after a newer edit and detects dependency conflicts in preflight', () => {
     const branch = branchCandidate(createDefaultProject());
     const candidate = branch.state.designs[branch.designId];
@@ -155,6 +312,7 @@ describe('domain mutation and snapshot boundaries', () => {
     const conflictedPreflight = preflightAnalysisRun(edited.state, {
       designId: latestDesign.designId,
       expectedDesignRevision: latestDesign.revision,
+      expectedProjectRevision: edited.state.projectRevision,
       expectedFlightCaseRevision: edited.state.flightCase.revision + 1,
       expectedConstraintsRevision: edited.state.constraints.revision,
       idempotencyKey: createIdempotencyKey(),
@@ -171,6 +329,7 @@ describe('domain mutation and snapshot boundaries', () => {
     const stateBefore = structuredClone(state);
     const cases: Array<{ name: string; mutate: (snapshot: AnalysisSnapshot) => void }> = [
       { name: 'wrong solver version', mutate: (snapshot) => { snapshot.solverVersion = 'wrong'; } },
+      { name: 'oversized analysis identifier', mutate: (snapshot) => { snapshot.analysisId = `ana_${'A'.repeat(10_000)}` as AnalysisSnapshot['analysisId']; } },
       { name: 'zero iterations', mutate: (snapshot) => { snapshot.convergence.iterations = 0; } },
       { name: 'negative equilibrium residual', mutate: (snapshot) => { snapshot.convergence.equilibriumResidual = -1; } },
       { name: 'excessive load change', mutate: (snapshot) => { snapshot.convergence.relativeLoadChange = 1; } },
@@ -213,6 +372,8 @@ describe('domain mutation and snapshot boundaries', () => {
         },
       },
       { name: 'nonzero tip circulation', mutate: (snapshot) => { snapshot.stations.at(-1)!.circulationM2s = 1; } },
+      { name: 'forged station downwash angle', mutate: (snapshot) => { snapshot.stations[1].inducedAngleDeg += 1; } },
+      { name: 'retired 3D flow diagnostic', mutate: (snapshot) => { (snapshot as unknown as Record<string, unknown>).flowDiagnostic = {}; } },
       {
         name: 'partial station records',
         mutate: (snapshot) => { (snapshot as unknown as { stations: unknown }).stations = [{ eta: 0 }, { eta: 1 }]; },

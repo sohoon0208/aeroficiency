@@ -37,7 +37,14 @@ describe('solver foundations', () => {
   });
 
   it('computes analytic trapezoidal-wing quantities', () => {
-    const geometry = { spanM: 8, rootChordM: 1.4, tipChordM: 0.7, rootTwistDeg: 0, tipTwistDeg: -2, nacaCode: '2412' };
+  const geometry = {
+    spanM: 8, rootChordM: 1.4, tipChordM: 0.7, rootTwistDeg: 0, tipTwistDeg: -2, nacaCode: '2412',
+    airfoilStations: [
+      { id: 'afs_root', eta: 0, airfoil: { kind: 'NACA4' as const, code: '2412' }, blendToNext: 'LINEAR_CAMBER_THICKNESS' as const },
+      { id: 'afs_tip', eta: 1, airfoil: { kind: 'NACA4' as const, code: '2412' }, blendToNext: 'HOLD' as const },
+    ],
+    polarModel: { kind: 'ANALYTIC_ATTACHED' as const, tables: [] },
+  };
     close(wingArea(geometry), 8.4);
     close(meanAerodynamicChord(geometry), 1.088888888888889);
     close(wingAspectRatio(geometry), 7.619047619047619);

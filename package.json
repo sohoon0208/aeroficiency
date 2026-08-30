@@ -1,6 +1,6 @@
 {
-  "name": "aerociency",
-  "version": "0.2.0",
+  "name": "aeroficiency",
+  "version": "0.5.0",
   "license": "MIT",
   "private": true,
   "engines": {
@@ -10,12 +10,15 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
+    "preview:cloudflare": "npm run build && wrangler dev --config dist/server/wrangler.json",
+    "deploy:cloudflare": "npm run build && wrangler deploy --config dist/server/wrangler.json",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit --incremental false",
     "licenses:generate": "node scripts/generate-third-party-licenses.mjs",
     "licenses:check": "node scripts/generate-third-party-licenses.mjs --check",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "release:check": "npm run lint && npm run typecheck && npm run licenses:check && npm run test:run && npm run build && npm audit --audit-level=high"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",

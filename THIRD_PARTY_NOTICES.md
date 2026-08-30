@@ -1,6 +1,6 @@
 # Third-party notices
 
-Aerociency's own source and original visual assets are licensed under MIT. The application also depends on open-source packages installed from npm. Exact versions and transitive dependencies are locked in `package-lock.json`; this file summarizes direct dependencies and does not replace their license texts. The frozen non-development dependency inventory is preserved in `THIRD_PARTY_LICENSES/npm-production-inventory.md`, and installed root license/notice documents are preserved in `THIRD_PARTY_LICENSES/npm-production-license-texts.txt`. Both are copied into the production asset tree.
+Aeroficiency's own source and original visual assets are licensed under MIT. The application also depends on open-source packages installed from npm. Exact versions and transitive dependencies are locked in `package-lock.json`; this file summarizes direct dependencies and does not replace their license texts. The frozen non-development dependency inventory is preserved in `THIRD_PARTY_LICENSES/npm-production-inventory.md`, and installed root license/notice documents are preserved in `THIRD_PARTY_LICENSES/npm-production-license-texts.txt`. Both are copied into the production asset tree.
 
 | Package | License |
 |---|---|
@@ -26,7 +26,7 @@ The remaining direct type and build packages listed in `package.json` are MIT-li
 
 ## Assets and technical references
 
-- `public/favicon.svg` is an original Aerociency vector mark created for this project.
+- `public/favicon.svg` is an original Aeroficiency vector mark created for this project.
 - `public/og.png` is an original project preview created with OpenAI ImageGen under the entrant's direction; it contains no third-party logo or stock image.
 - The UI requests local system font stacks and fetches no remote font. Vinext currently emits local Geist and Geist Mono files in the production bundle; their upstream copyright and full SIL OFL 1.1 terms are preserved in `THIRD_PARTY_LICENSES/Geist-OFL-1.1.txt` and copied into the deployed asset tree from `public/THIRD_PARTY_LICENSES/Geist-OFL-1.1.txt`.
 - No external aerodynamic dataset, airfoil coordinate file, CAD model, photograph, music, or video is bundled.

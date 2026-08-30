@@ -8,13 +8,53 @@ export type AnalysisFreshness = 'current' | 'stale' | 'unavailable';
 export type ConstraintState = 'pass' | 'fail' | 'unavailable' | 'stale';
 export type SolverFidelity = 'fast' | 'standard';
 
+export type AirfoilDefinition =
+  | { kind: 'NACA4'; code: string }
+  | { kind: 'COORDINATES'; name: string; points: Array<readonly [number, number]>; source?: string };
+
+export interface AirfoilStation {
+  id: string;
+  eta: number;
+  airfoil: AirfoilDefinition;
+  blendToNext: 'LINEAR_CAMBER_THICKNESS' | 'HOLD';
+}
+
+export interface PolarRow {
+  alphaDeg: number;
+  cl: number;
+  cd: number;
+  cm: number;
+}
+
+export interface SectionPolar {
+  polarId: string;
+  airfoilStationId: string;
+  reynolds: number;
+  mach: number;
+  transitionModel?: string;
+  rows: PolarRow[];
+  provenance: {
+    source: 'USER_IMPORT' | 'XFOIL' | 'EXPERIMENT' | 'ANALYTIC_ESTIMATE';
+    label: string;
+    licence?: string;
+  };
+}
+
+export interface PolarModel {
+  kind: 'ANALYTIC_ATTACHED' | 'USER_TABLES';
+  tables: SectionPolar[];
+}
+
 export interface WingGeometry {
   spanM: number;
   rootChordM: number;
   tipChordM: number;
   rootTwistDeg: number;
   tipTwistDeg: number;
+  /** Legacy uniform-section alias retained for the stable WebMCP contract. */
   nacaCode: string;
+  airfoilStations: AirfoilStation[];
+  polarModel: PolarModel;
 }
 
 export interface WingStructure {
@@ -76,6 +116,19 @@ export interface SpanStationResult {
   geometricTwistDeg: number;
   liftPerSpanNpm: number;
   circulationM2s: number;
+  /** Positive for solver wake downwash in the documented body-axis convention. */
+  downwashMps: number;
+  /** Positive downwash angle, subtracted from geometric local incidence. */
+  inducedAngleDeg: number;
+  inducedDragPerSpanNpm: number;
+  airfoilLabel: string;
+  zeroLiftAngleDeg: number;
+  pitchingMomentCoefficient: number;
+  reynoldsNumber: number;
+  sectionalLiftCoefficient: number;
+  profileDragCoefficient: number;
+  profileDragPerSpanNpm: number;
+  polarState: 'within_range' | 'extrapolated_alpha' | 'outside_reynolds' | 'outside_alpha' | 'analytic_estimate';
   shearN: number;
   bendingMomentNm: number;
   torqueNm: number;
@@ -103,6 +156,11 @@ export interface AnalysisMetrics {
   liftCoefficient: number;
   inducedDragN: number;
   inducedDragCoefficientEstimate: number | null;
+  profileDragEstimateN: number;
+  profileDragCoefficientEstimate: number;
+  combinedWingDragEstimateN: number;
+  combinedDragCoefficientEstimate: number;
+  estimatedWingLiftToDrag: number;
   spanEfficiencyEstimate: number | null;
   trimmedAlphaDeg: number;
   tipDeflectionM: number;
@@ -110,6 +168,19 @@ export interface AnalysisMetrics {
   minYieldMargin: number;
   maxBendingStressPa: number;
   maxTorsionalShearPa: number;
+}
+
+export interface PolarDiagnostics {
+  model: 'analytic_attached_polar' | 'user_section_polars';
+  profileDragAvailable: true;
+  withinRangeStations: number;
+  analyticEstimateStations: number;
+  extrapolatedAlphaStations: number;
+  outsideReynoldsStations: number;
+  outsideAlphaStations: number;
+  reynoldsRange: readonly [number, number];
+  effectiveAlphaRangeDeg: readonly [number, number];
+  provenance: string[];
 }
 
 export interface ConstraintResult {
@@ -125,6 +196,7 @@ export interface ConstraintResult {
 export interface AnalysisSnapshot {
   analysisId: AnalysisId;
   designId: DesignId;
+  designKind: DesignKind;
   status: AnalysisStatus;
   designRevision: number;
   flightCaseRevision: number;
@@ -136,6 +208,7 @@ export interface AnalysisSnapshot {
   convergence: AnalysisConvergence;
   metrics: AnalysisMetrics;
   stations: SpanStationResult[];
+  polarDiagnostics: PolarDiagnostics;
   constraints: ConstraintResult[];
   warnings: string[];
 }
@@ -186,7 +259,6 @@ export type DomainErrorCode =
   | 'VALIDATION_ERROR'
   | 'DESIGN_NOT_FOUND'
   | 'ANALYSIS_NOT_FOUND'
-  | 'BASELINE_PROTECTED'
   | 'REVISION_CONFLICT'
   | 'DUPLICATE_MUTATION_MISMATCH'
   | 'ANALYSIS_REQUIRED'
@@ -210,12 +282,15 @@ export interface DomainFailure {
     safeNextAction: string;
     issues?: DomainIssue[];
     current?: {
+      projectRevision?: number;
       designRevision?: number;
       flightCaseRevision?: number;
       constraintsRevision?: number;
     };
     analysisId?: AnalysisId;
     committed?: boolean;
+    /** Fixed public category for a solver/controller failure; never raw exception text. */
+    category?: string;
   };
 }
 

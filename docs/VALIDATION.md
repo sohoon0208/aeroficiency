@@ -1,10 +1,17 @@
 # Validation record
 
-This document records the checked-in validation plan, deterministic `aerociency-0.2.0` evidence, and the local release checks completed on 2026-08-28. The clean-copy gate, local in-app browser acceptance, and local production-runtime header checks passed. Hosted CI, public deployment, final browser/model reliability, and live-origin evidence remain pending. This is not an independent certification or experimental correlation report.
+This record separates local V5 release-candidate evidence from public challenge evidence. It is not experimental correlation, independent certification, or evidence that the model is suitable for flight-safety decisions.
 
-## Automated gates
+## Status
 
-Before release, run and record:
+- Local implementation: `LOCAL_V5_RC_READY`
+- Public/external work: `EXTERNAL_RELEASE_PENDING`
+- App / solver / tool schema: `0.5.0` / `aeroficiency-0.5.0` / `aeroficiency-webmcp-1.3`
+- Build identity: injected by `NEXT_PUBLIC_AEROFICIENCY_COMMIT`; local fallback `local`
+
+No repository publication, hosting, recording, upload, or submission is included in this evidence.
+
+## Local release gate
 
 ```bash
 npm ci
@@ -16,86 +23,108 @@ npm run build
 npm audit --audit-level=high
 ```
 
-A clean Git archive passed every command above on 2026-08-28: 12 Vitest files / 50 tests, 119 production dependency entries / 58 distinct license documents, and zero audited vulnerabilities. The suite covers numerical foundations, NACA/planform geometry, aerodynamic signs and symmetry, wing-box properties and stress, cantilever bending/torsion, aeroelastic coupling, immutable analysis construction, physics fingerprints, domain transitions, and WebMCP contracts. Hosted CI remains a publication gate.
+| Gate | Result |
+|---|---|
+| Fresh `npm ci` in an isolated `/tmp` copy | Pass; 629 packages installed, 630 audited |
+| ESLint | Pass with zero warnings |
+| TypeScript | Pass |
+| Vitest | 28 files / 154 tests pass |
+| Production license inventory | 119 dependency entries / 58 distinct texts verified |
+| `npm audit --audit-level=high` | Pass; 0 vulnerabilities |
+| Vinext production build | Pass; documented chunk-size and route-classification notices only |
+| Real local browser | Multi-section solve, all five modes, responsive layouts, and clean-reload console pass |
 
-## Analytic and deterministic checks
+The clean install reports the upstream support-window notice for pinned ESLint 9. The current Next/React rule stack is kept at the known-good version; this does not enter the production browser bundle.
 
-| Layer | Check | Acceptance idea |
+## Deterministic and analytic coverage
+
+| Layer | Checks | Acceptance |
 |---|---|---|
-| Dense algebra | Scaled partial-pivot solve and singular rejection | Known matrix solution and small relative residual |
-| NACA | 0012 symmetry/finite coordinates; 2412 camber and zero-lift behavior | Closed trailing edge; expected sign and geometry |
-| Planform | Area, taper, MAC, and cosine nodes | Analytic trapezoid identities |
-| Vortex | Finite segment sign/reversal and endpoint behavior | Biot–Savart direction and linearity |
-| Aerodynamics | Target lift, symmetry, positive induced drag | Tight lift and left/right residuals |
-| Wing box | Thin-wall area, centroid, `I`, `J`, mass, coincident stress | Hand-calculated rectangular fixture |
-| Beam | Tip load, distributed load, constant torsion | Classical cantilever formulae |
-| Load mapping | Root shear, moment, and torque | Strip sums equal recovered actions |
-| Coupling | Determinism, target lift, stiffness response | Same input/diagnostics and expected monotonic direction |
-| Snapshot | Metadata, finite values, constraints, identity | Malformed or stale result cannot commit |
-| State | baseline, revisions, idempotency, caps | Failed requests leave engineering state unchanged |
-| WebMCP | schemas, annotations, bounded errors, all eight names | Unexpected input is rejected safely |
+| Dense algebra | Scaled partial pivoting, residuals, singular rejection | Known solutions and bounded residuals |
+| Planform/NACA | Camber, thickness, area, taper, MAC, cosine nodes | Analytic identities and finite output |
+| V4 imported sections | Translation/rotation/scale normalization, order reversal, duplicates, branch coverage, self-intersection, thickness | Equivalent inputs canonicalize; invalid contours fail closed |
+| V4 span stations | Root/tip coverage, ordering, separation, blend/hold, exact selected location, local zero-lift/Cm | Deterministic local section and bounded model |
+| V4 structure coupling | Local spar intersections, thickness-driven box, station-split mass integration | Mesh-independent mass and expected stiffness direction |
+| V5 polars | Generated estimate, user provenance, alpha/Re/span interpolation, range states | Deterministic coefficients and explicit outside-range state |
+| V5 nonlinear aero | Polar closure, target lift, symmetry, induced/profile/combined identities | Lift/solver tolerances and positive finite drag |
+| User-polar full solve | Four imported root/tip Reynolds tables | Current target-lift solve stays within declared ranges |
+| Structure | Beam/torsion fixtures, lift-axis torque, SectionPolar moment, coincident stress | Classical cantilever checks and load preservation |
+| Coupling | Torsional fixed point, verification solve, stiffness response | Four convergence criteria and deterministic output |
+| 2D section panel | NACA/local/imported contour, Kutta, grid/order, sampled field | Stable `Cp`, forces, residuals, streamlines, vectors |
+| Snapshot/trust boundary | Identity, revisions, fingerprints, multi-station reconstruction, finite JSON | Malformed or stale work cannot commit |
+| Site Tools | Exact inventory, closed schemas, replay/conflict, editable Baseline, role replacement, bounded errors/DTOs, focus | Nine names and safe shared-state invariants |
+| UI/presentation | State matrix, editor/result tabs, V4/V5 labs, dialogs, keyboard/focus | No false pass, hidden write, overlap, or focus loss |
 
-## Deterministic default fixture
+## Frozen standard-fidelity fixtures
 
-Default geometry and case:
+Default reference inputs:
 
 | Input | Value |
 |---|---:|
 | Span | 12.0 m |
 | Root / tip chord | 2.40 / 1.08 m |
-| Root / tip twist | 0 / -2 deg |
-| Airfoil | NACA 2412 |
+| Airfoil stations | NACA 2412 at eta 0 and 1 |
+| Polar source | Aeroficiency analytic attached-flow estimate |
 | Skin / front web / rear web | 1.80 / 2.20 / 2.20 mm |
-| Elastic-axis fraction | 0.38c |
 | Target lift | 31,600 N |
 | Velocity / density | 64 m/s / 1.225 kg/m³ |
-| Solver | `standard`, `aerociency-0.2.0` |
 
-A direct deterministic check of `aerociency-0.2.0` at `standard` fidelity converged the baseline in 13 coupling iterations and produced approximately:
+The default Baseline reference converges in 10 coupling iterations:
 
-| Output | Value |
+| Baseline output | Value |
 |---|---:|
-| Structural mass | 119.2 kg |
-| Wake-induced drag estimate | 851.4 N |
-| Tip deflection | 0.109 m |
-| Tip elastic twist | 0.18 deg |
-| Minimum modeled yield margin | 3.76x |
-| Trimmed angle of attack | 6.21 deg |
+| Modeled wing-box wall mass | 119.263006 kg |
+| Wake-induced-drag estimate | 856.894938 N |
+| Profile-drag estimate | 550.235864 N |
+| Combined wing-drag estimate | 1,407.130802 N |
+| Estimated wing L/D | 22.457045 |
+| Tip deflection | 0.108961 m |
+| Tip elastic twist | 0.049092° |
+| Modeled yield ratio | 3.771242 |
+| Trim angle | 5.856181° |
 
-The comparison constraints for baseline-relative mass and drag are unavailable on the baseline by definition.
+The first candidate gauges, `1.75 / 2.10 / 2.10 mm`, reduce modeled wall mass by about 3.15% and fail only the 5% objective.
 
-## Feasible demo fixture
+The corrected `1.65 / 2.00 / 2.00 mm` candidate converges with all five checks passing:
 
-Starting from a current baseline analysis, branch a candidate and set:
+| Candidate output | Value |
+|---|---:|
+| Modeled wing-box wall mass | 109.133774 kg |
+| Wake-induced-drag estimate | 856.866903 N |
+| Profile-drag estimate | 550.234506 N |
+| Combined wing-drag estimate | 1,407.101409 N |
+| Estimated wing L/D | 22.457514 |
+| Tip deflection | 0.118968 m |
+| Tip elastic twist | 0.053643° |
+| Modeled yield ratio | 3.454159 |
+| Trim angle | 5.853486° |
+| Modeled wall-mass change | −8.493189% |
+| Wake-induced-drag change | −0.003272% |
 
-```text
-skinThicknessMm = 1.65
-frontWebThicknessMm = 2.00
-rearWebThicknessMm = 2.00
-```
+The wake-drag delta lies inside the UI’s ±0.05% neutral reporting band while still satisfying the strict no-worse check. The fixture conclusion remains: “The candidate achieves a meaningful modeled wing-box wall-mass reduction while no meaningful improvement is claimed in the wake-induced-drag estimate.” Profile and combined wing drag are supplemental V5 evidence, not substituted configured checks.
 
-The same direct solver check converged the candidate in 13 iterations at standard fidelity and produced approximately 109.10 kg structural mass, 851.23 N wake-induced drag, 0.1188 m tip deflection, 0.1937 deg tip twist, and a 3.44 minimum yield margin. Relative to that baseline it reduces modeled mass by about 8.49%, changes the wake-induced-drag estimate by about -0.014%, and passes all five configured candidate checks.
+## Browser acceptance
 
-These numbers are deterministic regression evidence for this implementation and input fixture and were also reproduced through the local in-app Site Tool workflow. They are not prompt-driven final-browser/model reliability evidence or validation against flight test, CFD, FEA, or a real wing.
+- [x] Fresh reset displays no fabricated result.
+- [x] Baseline standard analysis converges and exposes induced/profile/combined drag plus wing L/D.
+- [x] A real candidate workflow adds `afs_mid1`, moves it to eta 0.65, changes it to NACA 0015, and successfully commits a three-section revision-4 analysis.
+- [x] The analyzed multi-section wing updates the 3D loft, local section label, mass, drag, deformation, and polar-linked evidence.
+- [x] Geometry, Aero loads, 2D Section, Efficiency, and Structure modes all render from a current immutable analysis.
+- [x] Efficiency keeps drag summaries and local facts at readable heights and scrolls its plots deliberately.
+- [x] Planform/Airfoils/Structure/Case and Overview/Checks/Compare/Log tabs fit their containers.
+- [x] Tablet results drawer keeps its current-result pill, long analysis ID, and Close control inside the panel.
+- [x] 1440×900, 1280×720, 1024×768, 390×844, and 640×360 layouts have no document-level horizontal overflow.
+- [x] At 390 px, all five visualization tabs remain visible; V4/V5 diagnostic panels scroll vertically without horizontal clipping.
+- [x] A fresh post-fix reload reports no console errors.
 
-## Browser and release checks
+## External evidence still required
 
-- [x] A clean load presents no analysis instead of fabricated metrics.
-- [x] Standard baseline analysis completes in the dedicated worker.
-- [x] The local in-app WebMCP environment discovers all and only the eight source-defined tools.
-- [x] A direct Site Tool trace creates, edits, analyzes, and compares a candidate while the visible UI updates.
-- [x] A later human edit makes results stale in the checked tool/store integration path.
-- [x] A write against the prior revision returns `REVISION_CONFLICT` with current revisions and does not overwrite the human.
-- [x] At 1440 px, the three work areas fit the viewport.
-- [x] At 390 px, metrics remain reachable and the page has no horizontal overflow, including a 568 px-short viewport.
-- [x] Design, Model, and Results mobile views remain reachable.
-- [x] Local Vinext and generated Cloudflare Worker `/` responses contain the intended security headers.
-- [ ] CI passes on the frozen public commit.
-- [ ] The live origin returns the intended security headers without CSP violations.
-- [ ] The final supported browser/model prompt suite passes every safety invariant and E10 succeeds at least 9/10 fresh runs.
+- [ ] Hosted CI passes on the frozen public commit.
+- [ ] Final supported browser/model preserves every invariant and succeeds on at least 9/10 fresh canonical runs.
+- [ ] Entrant authorizes a public repository and deployment.
+- [ ] Logged-out public origin discovers exactly nine tools and returns intended security headers without CSP violations.
+- [ ] Demo is recorded from the frozen public release and all submitted links work logged out.
 
-## Limits of this validation
+## Limits
 
-The project has no wind-tunnel, flight-test, high-fidelity CFD, shell-FEA, or certification correlation. Wake-only drag and one-row lattice convergence are explicitly low-order estimates. Material yield is not a general structural safety factor. The allowed input domain is conservative but not a guarantee that every mathematically accepted design is physically buildable.
-
-Before publication, approve or replace the Git attribution metadata, run hosted CI on the frozen public candidate, repeat the prompt-driven suite in the final supported ChatGPT/Chrome WebMCP environment, set the canonical HTTPS origin, and verify the live production headers. Record a deployment identifier here only after the user authorizes publication and those artifacts exist.
+There is no wind-tunnel, flight-test, high-fidelity CFD, shell-FEA, or certification correlation. The generated polar is an attached-flow estimate; user tables are only as valid as their supplied provenance and coverage. The 2D lab is inviscid and does not model boundary layers, transition, separation, stall, or turbulence. Combined drag is wing-only, not total-aircraft drag. The modeled yield ratio is not a general safety factor. Input bounds and passed checks do not prove that a design is physically valid, buildable, safe, or certifiable.

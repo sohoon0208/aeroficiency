@@ -48,8 +48,8 @@ function relaxed(raw: readonly number[], current: readonly number[]) {
 }
 
 function ensureWithinModelRange(design: WingDesign, structure: StructuralResult) {
-  if (structure.maxElasticTwistRad > 15 * Math.PI / 180) throw new CouplingError('MODEL_RANGE_EXCEEDED', 'Elastic twist exceeded the supported 15 degree preliminary-model range.');
-  if (Math.abs(structure.tipDeflectionM) > 0.1 * design.geometry.spanM / 2) throw new CouplingError('MODEL_RANGE_EXCEEDED', 'Tip bending exceeded 10% of semispan; small-deflection beam assumptions are invalid.');
+  if (structure.maxElasticTwistRad > SOLVER_SETTINGS.maxElasticTwistDeg * Math.PI / 180) throw new CouplingError('MODEL_RANGE_EXCEEDED', `Elastic twist exceeded the supported ${SOLVER_SETTINGS.maxElasticTwistDeg} degree preliminary-model range.`);
+  if (Math.abs(structure.tipDeflectionM) > SOLVER_SETTINGS.maxTipDeflectionSemispanFraction * design.geometry.spanM / 2) throw new CouplingError('MODEL_RANGE_EXCEEDED', `Tip bending exceeded ${100 * SOLVER_SETTINGS.maxTipDeflectionSemispanFraction}% of semispan; small-deflection beam assumptions are invalid.`);
 }
 
 function diagnostic(

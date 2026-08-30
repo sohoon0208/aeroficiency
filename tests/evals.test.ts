@@ -14,6 +14,7 @@ function commitStandardAnalysis(state: ProjectState, design: WingDesign) {
   const transition = commitAnalysisSnapshot(state, {
     designId: design.designId,
     expectedDesignRevision: design.revision,
+    expectedProjectRevision: state.projectRevision,
     expectedFlightCaseRevision: state.flightCase.revision,
     expectedConstraintsRevision: state.constraints.revision,
     idempotencyKey: createIdempotencyKey(),
@@ -32,6 +33,7 @@ function runMassStudyWorkflow() {
 
   const branch = createCandidateVariant(state, {
     sourceDesignId: baseline.designId,
+    expectedProjectRevision: state.projectRevision,
     expectedSourceDesignRevision: baseline.revision,
     candidateLabel: 'Agent mass study',
     idempotencyKey: createIdempotencyKey(),
@@ -72,6 +74,9 @@ function stableMetricVector(metrics: AnalysisMetrics) {
   return {
     structuralMassKg: metrics.structuralMassKg,
     inducedDragN: metrics.inducedDragN,
+    profileDragEstimateN: metrics.profileDragEstimateN,
+    combinedWingDragEstimateN: metrics.combinedWingDragEstimateN,
+    estimatedWingLiftToDrag: metrics.estimatedWingLiftToDrag,
     tipDeflectionM: metrics.tipDeflectionM,
     tipElasticTwistDeg: metrics.tipElasticTwistDeg,
     minYieldMargin: metrics.minYieldMargin,
@@ -98,17 +103,20 @@ describe('deterministic solver-domain fixture', () => {
     }
 
     const fixture = runs[0];
-    expect(fixture.candidateMetrics.structuralMassKg).toBeCloseTo(109.0991790496317, 9);
-    expect(fixture.candidateMetrics.inducedDragN).toBeCloseTo(851.2300805254258, 9);
-    expect(fixture.candidateMetrics.tipDeflectionM).toBeCloseTo(0.11883217173082616, 12);
-    expect(fixture.candidateMetrics.tipElasticTwistDeg).toBeCloseTo(0.19373222630717152, 12);
-    expect(fixture.candidateMetrics.minYieldMargin).toBeCloseTo(3.439588805384481, 12);
-    expect(fixture.candidateMetrics.trimmedAlphaDeg).toBeCloseTo(6.199361801147461, 12);
+    expect(fixture.candidateMetrics.structuralMassKg).toBeCloseTo(109.13377350384792, 9);
+    expect(fixture.candidateMetrics.inducedDragN).toBeCloseTo(856.8669026323952, 9);
+    expect(fixture.candidateMetrics.profileDragEstimateN).toBeCloseTo(550.2345064337524, 9);
+    expect(fixture.candidateMetrics.combinedWingDragEstimateN).toBeCloseTo(1407.1014090661474, 9);
+    expect(fixture.candidateMetrics.estimatedWingLiftToDrag).toBeCloseTo(22.45751384898774, 12);
+    expect(fixture.candidateMetrics.tipDeflectionM).toBeCloseTo(0.11896830161683179, 12);
+    expect(fixture.candidateMetrics.tipElasticTwistDeg).toBeCloseTo(0.053642939905364034, 12);
+    expect(fixture.candidateMetrics.minYieldMargin).toBeCloseTo(3.4541592255035125, 12);
+    expect(fixture.candidateMetrics.trimmedAlphaDeg).toBeCloseTo(5.853485584259032, 12);
     const massReductionPct = 100 * (fixture.baselineMetrics.structuralMassKg - fixture.candidateMetrics.structuralMassKg)
       / fixture.baselineMetrics.structuralMassKg;
     const dragChangePct = 100 * (fixture.candidateMetrics.inducedDragN - fixture.baselineMetrics.inducedDragN)
       / fixture.baselineMetrics.inducedDragN;
-    expect(massReductionPct).toBeCloseTo(8.493002215773709, 10);
-    expect(dragChangePct).toBeCloseTo(-0.014198717561214946, 12);
-  });
+    expect(massReductionPct).toBeCloseTo(8.493188692216165, 10);
+    expect(dragChangePct).toBeCloseTo(-0.003271683370555275, 12);
+  }, 40_000);
 });

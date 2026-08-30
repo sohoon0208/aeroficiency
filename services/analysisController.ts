@@ -1,4 +1,5 @@
 import type { AnalysisSnapshot, ProjectState, SolverFidelity, WingDesign } from '@/lib/domain/types';
+import { normalizeAnalysisException } from '@/lib/domain/publicErrors';
 import type { CouplingProgress } from '@/lib/solver/coupling';
 import AnalysisWorker from '@/workers/analysis.worker.ts?worker';
 
@@ -26,7 +27,7 @@ export function executeAnalysisWorker(
       reject(new AnalysisControllerError('TOOL_UNAVAILABLE', 'This browser cannot start the local analysis worker.'));
       return;
     }
-    const worker = new AnalysisWorker({ name: 'aerociency-analysis' });
+    const worker = new AnalysisWorker({ name: 'aeroficiency-analysis' });
     const cleanUp = () => {
       signal?.removeEventListener('abort', abort);
       worker.terminate();
@@ -39,19 +40,23 @@ export function executeAnalysisWorker(
     signal?.addEventListener('abort', abort, { once: true });
     worker.onerror = (event) => {
       cleanUp();
-      reject(new AnalysisControllerError('ANALYSIS_FAILED', event.message || 'Analysis worker failed.'));
+      event.preventDefault();
+      reject(new AnalysisControllerError('ANALYSIS_FAILED', 'The local analysis worker failed before returning a bounded result.'));
     };
     worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
       if (event.data.type === 'progress') { onProgress?.(event.data.progress); return; }
       cleanUp();
       if (event.data.type === 'complete') resolve(event.data.snapshot);
-      else reject(new AnalysisControllerError(event.data.error.code, event.data.error.message));
+      else {
+        const normalized = normalizeAnalysisException({ code: event.data.error.code });
+        reject(new AnalysisControllerError(normalized.category, normalized.message));
+      }
     };
     try {
       worker.postMessage({ type: 'run', state, design, fidelity });
-    } catch (error) {
+    } catch {
       cleanUp();
-      reject(new AnalysisControllerError('ANALYSIS_FAILED', error instanceof Error ? error.message : 'Analysis worker could not receive the request.'));
+      reject(new AnalysisControllerError('ANALYSIS_FAILED', 'The analysis worker could not receive the bounded request.'));
     }
   });
 }

@@ -24,6 +24,7 @@ describe('immutable analysis snapshots', () => {
     const transition = commitAnalysisSnapshot(state, {
       designId: design.designId,
       expectedDesignRevision: design.revision,
+      expectedProjectRevision: state.projectRevision,
       expectedFlightCaseRevision: state.flightCase.revision,
       expectedConstraintsRevision: state.constraints.revision,
       idempotencyKey: createIdempotencyKey(),
@@ -56,6 +57,7 @@ describe('immutable analysis snapshots', () => {
     const request = {
       designId: design.designId,
       expectedDesignRevision: design.revision,
+      expectedProjectRevision: state.projectRevision,
       expectedFlightCaseRevision: state.flightCase.revision,
       expectedConstraintsRevision: state.constraints.revision,
       idempotencyKey: createIdempotencyKey(),
@@ -75,5 +77,33 @@ describe('immutable analysis snapshots', () => {
     expect(replay.result.ok).toBe(false);
     if (!replay.result.ok) expect(replay.result.error.code).toBe('ANALYSIS_DID_NOT_CONVERGE');
     expect(Object.keys(replay.state.analyses)).toHaveLength(1);
+  });
+
+  it('builds and commits a multi-station airfoil result through the same trust boundary', () => {
+    const state = createDefaultProject();
+    const design = structuredClone(state.designs[state.activeDesignId]);
+    design.kind = 'candidate';
+    design.revision = 4;
+    design.geometry.airfoilStations = [
+      { id: 'afs_root', eta: 0, airfoil: { kind: 'NACA4', code: '2412' }, blendToNext: 'LINEAR_CAMBER_THICKNESS' },
+      { id: 'afs_mid1', eta: 0.65, airfoil: { kind: 'NACA4', code: '0015' }, blendToNext: 'LINEAR_CAMBER_THICKNESS' },
+      { id: 'afs_tip', eta: 1, airfoil: { kind: 'NACA4', code: '2412' }, blendToNext: 'HOLD' },
+    ];
+    const candidateState = structuredClone(state);
+    candidateState.designs[design.designId] = design;
+    const snapshot = buildAnalysisSnapshot(candidateState, design, 'standard');
+    const transition = commitAnalysisSnapshot(candidateState, {
+      designId: design.designId,
+      expectedDesignRevision: design.revision,
+      expectedProjectRevision: candidateState.projectRevision,
+      expectedFlightCaseRevision: candidateState.flightCase.revision,
+      expectedConstraintsRevision: candidateState.constraints.revision,
+      idempotencyKey: createIdempotencyKey(),
+      fidelity: 'standard',
+    }, snapshot, 'human');
+
+    expect(transition.result.ok).toBe(true);
+    expect(snapshot.stations.some((station) => station.airfoilLabel.includes('NACA 0015'))).toBe(true);
+    expect(snapshot.stations.every((station) => Number.isFinite(station.zeroLiftAngleDeg))).toBe(true);
   });
 });

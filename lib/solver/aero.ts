@@ -1,9 +1,10 @@
 import type { FlightCase, WingGeometry } from '@/lib/domain/types';
 import { SOLVER_SETTINGS } from '@/lib/domain/limits';
-import { validateFlightCase, validateGeometry } from '@/lib/domain/validation';
-import { parseNaca4, zeroLiftAngleRad } from './naca';
+import { requiredTargetLiftCoefficient, validateFlightCase, validateGeometry } from '@/lib/domain/validation';
+import { localAirfoilSection } from './airfoilSections';
+import { evaluateSectionPolar, type PolarEvaluation } from './polars';
 import { chordAtY, cosineSpanNodes, geometricTwistAtY, meanAerodynamicChord, wingArea, wingAspectRatio } from './planform';
-import { add3, cross3, dot3, factorDense, interpolateLinear, NumericalError, scale3, solveFactored, sub3, type Vec3 } from './math';
+import { add3, cross3, dot3, factorDense, interpolateLinear, NumericalError, scale3, solveDense, solveFactored, sub3, type Vec3 } from './math';
 import { horseshoeVelocity, wakeOnlyVelocity } from './vortex';
 
 export interface TwistField {
@@ -25,6 +26,19 @@ export interface AeroStripResult {
   verticalForceN: number;
   liftPerSpanNpm: number;
   inducedDragN: number;
+  inducedVelocityMps: Vec3;
+  inducedAngleRad: number;
+  effectiveAlphaRad: number;
+  airfoilLabel: string;
+  zeroLiftAngleRad: number;
+  reynoldsNumber: number;
+  sectionalLiftCoefficient: number;
+  profileDragCoefficient: number;
+  profileDragN: number;
+  pitchingMomentCoefficient: number;
+  pitchingMomentNmPerM: number;
+  polarState: PolarEvaluation['state'];
+  polarProvenance: string;
 }
 
 export interface AeroResult {
@@ -34,14 +48,20 @@ export interface AeroResult {
   liftCoefficient: number;
   inducedDragN: number;
   inducedDragCoefficient: number;
+  profileDragN: number;
+  profileDragCoefficient: number;
+  combinedDragN: number;
+  combinedDragCoefficient: number;
+  estimatedLiftToDrag: number;
   spanEfficiencyEstimate: number | null;
   strips: AeroStripResult[];
   relativeResidual: number;
   trimIterations: number;
   targetLiftError: number;
   symmetryError: number;
-  vortexCoreM: number;
   panelCount: number;
+  polarIterations: number;
+  polarResidual: number;
 }
 
 export class AeroError extends Error {
@@ -61,6 +81,9 @@ interface LatticeStrip {
   chordM: number;
   geometricTwistRad: number;
   elasticTwistRad: number;
+  zeroLiftAngleRad: number;
+  quarterChordMomentCoefficient: number;
+  airfoilLabel: string;
 }
 
 function checkAbort(signal?: AbortSignal) {
@@ -73,9 +96,9 @@ function validateInputs(geometry: WingGeometry, flightCase: FlightCase, panelCou
   if (issues.length) throw new AeroError('INVALID_INPUT', `${issues[0].path}: ${issues[0].reason}`);
   const area = wingArea(geometry);
   const dynamicPressure = 0.5 * flightCase.airDensityKgM3 * flightCase.velocityMps ** 2;
-  const targetCl = flightCase.targetLiftN / (dynamicPressure * area);
+  const targetCl = requiredTargetLiftCoefficient(geometry, flightCase);
   if (![area, dynamicPressure, targetCl].every(Number.isFinite) || area <= 0 || dynamicPressure <= 0) throw new AeroError('INVALID_INPUT', 'Aerodynamic inputs must be finite and positive.');
-  if (targetCl < 0.15 || targetCl > 1) throw new AeroError('INVALID_INPUT', `Target lift requires CL ${targetCl.toFixed(3)}, outside the supported 0.15–1.00 range.`);
+  if (targetCl < SOLVER_SETTINGS.requiredTargetCl[0] || targetCl > SOLVER_SETTINGS.requiredTargetCl[1]) throw new AeroError('INVALID_INPUT', `Target lift requires CL ${targetCl.toFixed(3)}, outside the supported ${SOLVER_SETTINGS.requiredTargetCl[0]}–${SOLVER_SETTINGS.requiredTargetCl[1].toFixed(2)} range.`);
 }
 
 function validateTwistField(twistField: TwistField) {
@@ -89,8 +112,6 @@ function validateTwistField(twistField: TwistField) {
 
 function buildLattice(geometry: WingGeometry, twistField: TwistField, panelCount: number, signal?: AbortSignal) {
   const nodes = cosineSpanNodes(geometry.spanM, panelCount);
-  const definition = parseNaca4(geometry.nacaCode);
-  const alphaZeroLift = zeroLiftAngleRad(definition);
   const coreM = Math.max(1e-9, SOLVER_SETTINGS.vortexCoreRatio * meanAerodynamicChord(geometry));
   const strips: LatticeStrip[] = [];
   for (let index = 0; index < panelCount; index += 1) {
@@ -102,8 +123,9 @@ function buildLattice(geometry: WingGeometry, twistField: TwistField, panelCount
     const chordM = chordAtY(geometry, yMidM);
     const geometricTwistRad = geometricTwistAtY(geometry, yMidM);
     const elasticTwistRad = interpolateLinear(etaMid, twistField.eta, twistField.twistRad);
+    const section = localAirfoilSection(geometry, etaMid, 80);
     const physicalTwist = geometricTwistRad + elasticTwistRad;
-    const normalAngle = physicalTwist - alphaZeroLift;
+    const normalAngle = physicalTwist - section.zeroLiftAngleRad;
     strips.push({
       start: [0, yStartM, 0],
       end: [0, yEndM, 0],
@@ -114,6 +136,9 @@ function buildLattice(geometry: WingGeometry, twistField: TwistField, panelCount
       chordM,
       geometricTwistRad,
       elasticTwistRad,
+      zeroLiftAngleRad: section.zeroLiftAngleRad,
+      quarterChordMomentCoefficient: section.quarterChordMomentCoefficient,
+      airfoilLabel: section.label,
     });
   }
   const matrix = strips.map((target) => {
@@ -121,7 +146,11 @@ function buildLattice(geometry: WingGeometry, twistField: TwistField, panelCount
     return strips.map((source) => dot3(horseshoeVelocity(target.control, source.start, source.end, coreM), target.normal));
   });
   try {
-    return { strips, factor: factorDense(matrix), coreM };
+    const wakeDownwashInfluence = strips.map((target) => {
+      const targetPoint = scale3(add3(target.start, target.end), 0.5);
+      return strips.map((source) => -wakeOnlyVelocity(targetPoint, source.start, source.end, coreM)[2]);
+    });
+    return { strips, factor: factorDense(matrix), coreM, wakeDownwashInfluence };
   } catch (error) {
     throw new AeroError('VLM_SINGULAR', error instanceof Error ? error.message : 'VLM influence matrix is singular.');
   }
@@ -137,7 +166,7 @@ export function solveTargetLiftAerodynamics(
   validateInputs(geometry, flightCase, panelCount);
   validateTwistField(twistField);
   checkAbort(signal);
-  const { strips, factor, coreM } = buildLattice(geometry, twistField, panelCount, signal);
+  const { strips, factor, coreM, wakeDownwashInfluence } = buildLattice(geometry, twistField, panelCount, signal);
   const density = flightCase.airDensityKgM3;
   const velocity = flightCase.velocityMps;
 
@@ -153,6 +182,95 @@ export function solveTargetLiftAerodynamics(
       const code = error instanceof NumericalError && error.code === 'SINGULAR_SYSTEM' ? 'VLM_SINGULAR' : 'NUMERICAL_FAILURE';
       throw new AeroError(code, error instanceof Error ? error.message : 'VLM circulation solve failed.');
     }
+    type NonlinearTarget = PolarEvaluation & {
+      effectiveAlphaRad: number;
+      reynoldsNumber: number;
+      downwash: number;
+      liftSlopePerRad: number;
+      circulationM2s: number;
+    };
+    const evaluateTargets = (candidateCirculation: readonly number[]): NonlinearTarget[] => strips.map((strip, index) => {
+      const downwash = wakeDownwashInfluence[index].reduce((sum, influence, source) => sum + influence * candidateCirculation[source], 0);
+      const inducedAngleRad = Math.atan2(downwash, velocity);
+      const effectiveAlphaRad = alphaRad + strip.geometricTwistRad + strip.elasticTwistRad - inducedAngleRad;
+      const reynoldsNumber = density * velocity * strip.chordM / flightCase.dynamicViscosityPaS;
+      const evaluated = evaluateSectionPolar(geometry, strip.etaMid, reynoldsNumber, effectiveAlphaRad * 180 / Math.PI);
+      const derivativeStepRad = 0.04 * Math.PI / 180;
+      const plus = evaluateSectionPolar(geometry, strip.etaMid, reynoldsNumber, (effectiveAlphaRad + derivativeStepRad) * 180 / Math.PI);
+      const minus = evaluateSectionPolar(geometry, strip.etaMid, reynoldsNumber, (effectiveAlphaRad - derivativeStepRad) * 180 / Math.PI);
+      return {
+        ...evaluated,
+        effectiveAlphaRad,
+        reynoldsNumber,
+        downwash,
+        liftSlopePerRad: (plus.cl - minus.cl) / (2 * derivativeStepRad),
+        circulationM2s: 0.5 * velocity * strip.chordM * evaluated.cl,
+      };
+    });
+    const residualFor = (candidateCirculation: readonly number[], targets: readonly NonlinearTarget[]) => {
+      const vector = targets.map((target, index) => candidateCirculation[index] - target.circulationM2s);
+      const norm = Math.sqrt(vector.reduce((sum, value) => sum + value ** 2, 0));
+      const scale = Math.max(1, Math.sqrt(targets.reduce((sum, target) => sum + target.circulationM2s ** 2, 0)));
+      return { vector, normalized: norm / scale };
+    };
+    const maximumSectionCirculation = strips.map((strip) => 0.95 * velocity * strip.chordM);
+    circulation = circulation.map((value, index) => Math.max(-maximumSectionCirculation[index], Math.min(maximumSectionCirculation[index], value)));
+    let polarIterations = 0;
+    let polarResidual = Number.POSITIVE_INFINITY;
+    let polar: Array<PolarEvaluation & { effectiveAlphaRad: number; reynoldsNumber: number }> = [];
+    for (; polarIterations < 40; polarIterations += 1) {
+      checkAbort(signal);
+      const targets = evaluateTargets(circulation);
+      const residual = residualFor(circulation, targets);
+      const residualVector = residual.vector;
+      polarResidual = residual.normalized;
+      polar = targets.map((target) => ({
+        cl: target.cl,
+        cd: target.cd,
+        cm: target.cm,
+        state: target.state,
+        provenance: target.provenance,
+        alphaRangeDeg: target.alphaRangeDeg,
+        reynoldsRange: target.reynoldsRange,
+        effectiveAlphaRad: target.effectiveAlphaRad,
+        reynoldsNumber: target.reynoldsNumber,
+      }));
+      if (polarResidual <= 2e-7) {
+        circulation = targets.map((target) => target.circulationM2s);
+        break;
+      }
+      const jacobian = strips.map((strip, row) => strips.map((_, column) => {
+        const inducedDerivative = velocity / (velocity ** 2 + targets[row].downwash ** 2) * wakeDownwashInfluence[row][column];
+        const polarTerm = 0.5 * velocity * strip.chordM * targets[row].liftSlopePerRad * inducedDerivative;
+        return (row === column ? 1 : 0) + polarTerm;
+      }));
+      let correction: number[];
+      try {
+        correction = solveDense(jacobian, residualVector.map((value) => -value)).solution;
+      } catch (error) {
+        throw new AeroError('NUMERICAL_FAILURE', error instanceof Error ? `Nonlinear polar Jacobian failed: ${error.message}` : 'Nonlinear polar Jacobian failed.');
+      }
+      let accepted = false;
+      let step = 1;
+      for (let search = 0; search < 12; search += 1) {
+        const candidate = circulation.map((value, index) => {
+          const next = value + step * correction[index];
+          return Math.max(-maximumSectionCirculation[index], Math.min(maximumSectionCirculation[index], next));
+        });
+        const candidateResidual = residualFor(candidate, evaluateTargets(candidate)).normalized;
+        if (Number.isFinite(candidateResidual) && candidateResidual < polarResidual * (1 - 1e-4 * step)) {
+          circulation = candidate;
+          accepted = true;
+          break;
+        }
+        step *= 0.5;
+      }
+      if (!accepted) {
+        const fixedPointStep = 0.08;
+        circulation = circulation.map((value, index) => value - fixedPointStep * residualVector[index]);
+      }
+    }
+    if (polarResidual > 2e-5 || !Number.isFinite(polarResidual)) throw new AeroError('NUMERICAL_FAILURE', `Nonlinear polar coupling stopped with residual ${polarResidual.toExponential(3)}.`);
     const liftDirection: Vec3 = [-Math.sin(alphaRad), 0, Math.cos(alphaRad)];
     let liftN = 0;
     let verticalForceN = 0;
@@ -164,7 +282,7 @@ export function solveTargetLiftAerodynamics(
       verticalForceN += force[2];
       return { force, lift };
     });
-    return { alphaRad, freeStream, circulation, forces, liftN, verticalForceN, relativeResidual };
+    return { alphaRad, freeStream, circulation, forces, liftN, verticalForceN, relativeResidual: Math.max(relativeResidual, polarResidual), polar, polarIterations: polarIterations + 1, polarResidual };
   };
 
   const alphaLow = SOLVER_SETTINGS.alphaBracketDeg[0] * Math.PI / 180;
@@ -199,7 +317,12 @@ export function solveTargetLiftAerodynamics(
     const inducedForce = scale3(cross3(wakeVelocity, bound), density * current.circulation[index]);
     const drag = dot3(inducedForce, dragDirection);
     inducedDragN += drag;
-    return drag;
+    return {
+      drag,
+      velocity: wakeVelocity,
+      /** Positive for downwash; the solver's +z axis points upward. */
+      inducedAngleRad: Math.atan2(-wakeVelocity[2], velocity),
+    };
   });
   const dynamicPressure = 0.5 * density * velocity ** 2;
   const area = wingArea(geometry);
@@ -209,8 +332,11 @@ export function solveTargetLiftAerodynamics(
   const inducedDragCoefficient = inducedDragN / (dynamicPressure * area);
   const aspectRatio = wingAspectRatio(geometry);
   const spanEfficiencyEstimate = inducedDragCoefficient > 0 ? liftCoefficient ** 2 / (Math.PI * aspectRatio * inducedDragCoefficient) : null;
+  let profileDragN = 0;
   const results = strips.map((strip, index): AeroStripResult => {
     const width = strip.end[1] - strip.start[1];
+    const profileDrag = dynamicPressure * strip.chordM * width * current.polar[index].cd;
+    profileDragN += profileDrag;
     return {
       index,
       yStartM: strip.start[1],
@@ -224,9 +350,26 @@ export function solveTargetLiftAerodynamics(
       liftN: current.forces[index].lift,
       verticalForceN: current.forces[index].force[2],
       liftPerSpanNpm: current.forces[index].lift / width,
-      inducedDragN: inducedPerStrip[index],
+      inducedDragN: inducedPerStrip[index].drag,
+      inducedVelocityMps: inducedPerStrip[index].velocity,
+      inducedAngleRad: inducedPerStrip[index].inducedAngleRad,
+      effectiveAlphaRad: current.polar[index].effectiveAlphaRad,
+      airfoilLabel: strip.airfoilLabel,
+      zeroLiftAngleRad: strip.zeroLiftAngleRad,
+      reynoldsNumber: current.polar[index].reynoldsNumber,
+      sectionalLiftCoefficient: current.polar[index].cl,
+      profileDragCoefficient: current.polar[index].cd,
+      profileDragN: profileDrag,
+      pitchingMomentCoefficient: current.polar[index].cm,
+      pitchingMomentNmPerM: dynamicPressure * strip.chordM ** 2 * current.polar[index].cm,
+      polarState: current.polar[index].state,
+      polarProvenance: current.polar[index].provenance,
     };
   });
+  const profileDragCoefficient = profileDragN / (dynamicPressure * area);
+  const combinedDragN = inducedDragN + profileDragN;
+  const combinedDragCoefficient = combinedDragN / (dynamicPressure * area);
+  const estimatedLiftToDrag = combinedDragN > 0 ? current.liftN / combinedDragN : 0;
   let symmetryError = 0;
   const circulationScale = Math.max(...current.circulation.map(Math.abs), 1e-12);
   for (let index = 0; index < panelCount / 2; index += 1) {
@@ -241,13 +384,19 @@ export function solveTargetLiftAerodynamics(
     liftCoefficient,
     inducedDragN,
     inducedDragCoefficient,
+    profileDragN,
+    profileDragCoefficient,
+    combinedDragN,
+    combinedDragCoefficient,
+    estimatedLiftToDrag,
     spanEfficiencyEstimate,
     strips: results,
     relativeResidual: current.relativeResidual,
     trimIterations: trimIterations + 1,
     targetLiftError,
     symmetryError,
-    vortexCoreM: coreM,
     panelCount,
+    polarIterations: current.polarIterations,
+    polarResidual: current.polarResidual,
   };
 }

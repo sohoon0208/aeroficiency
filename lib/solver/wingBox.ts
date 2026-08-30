@@ -1,6 +1,6 @@
 import { ALUMINUM_2024_T3 } from '@/lib/domain/limits';
 import type { MaterialDefinition, WingDesign } from '@/lib/domain/types';
-import { nacaSurfacePoint, parseNaca4 } from './naca';
+import { localAirfoilSection, resolvedAirfoilStations, sectionSurfaceAtX } from './airfoilSections';
 import { chordAtY } from './planform';
 
 export interface SectionPoint { xM: number; zM: number }
@@ -84,9 +84,10 @@ export function computeThinWallSection(
 export function wingBoxAtY(design: WingDesign, yM: number): ThinWallSection {
   if (design.structure.material !== ALUMINUM_2024_T3.key) throw new Error(`Unsupported material preset: ${String(design.structure.material)}.`);
   const chordM = chordAtY(design.geometry, yM);
-  const naca = parseNaca4(design.geometry.nacaCode);
-  const front = nacaSurfacePoint(design.structure.frontSparXOverC, naca);
-  const rear = nacaSurfacePoint(design.structure.rearSparXOverC, naca);
+  const eta = Math.min(1, Math.max(0, 2 * Math.abs(yM) / design.geometry.spanM));
+  const section = localAirfoilSection(design.geometry, eta);
+  const front = sectionSurfaceAtX(section, design.structure.frontSparXOverC);
+  const rear = sectionSurfaceAtX(section, design.structure.rearSparXOverC);
   const points: SectionPoint[] = [
     { xM: design.structure.frontSparXOverC * chordM, zM: front.zUpper * chordM },
     { xM: design.structure.rearSparXOverC * chordM, zM: rear.zUpper * chordM },
@@ -107,16 +108,30 @@ export function wingBoxAtY(design: WingDesign, yM: number): ThinWallSection {
 }
 
 /**
- * The current wing-box section is geometrically similar along a linear taper,
- * so its mass per unit span scales exactly with local chord. This independent
- * closed-form value is used at the snapshot trust boundary as well as in
- * validation tests; it does not depend on aerodynamic loads or solver mesh.
+ * Solver-mesh-independent structural mass integration. Airfoil-station
+ * boundaries are explicit integration boundaries and each interval uses
+ * five-point Gauss–Legendre quadrature.
  */
 export function expectedStructuralMassKg(design: WingDesign) {
-  const rootMassPerLengthKgM = wingBoxAtY(design, 0).massPerLengthKgM;
-  const planformAreaM2 = design.geometry.spanM
-    * (design.geometry.rootChordM + design.geometry.tipChordM) / 2;
-  return rootMassPerLengthKgM / design.geometry.rootChordM * planformAreaM2;
+  const gauss = [
+    { r: 0.046910077030668, weight: 0.118463442528095 },
+    { r: 0.230765344947158, weight: 0.239314335249683 },
+    { r: 0.5, weight: 0.284444444444444 },
+    { r: 0.769234655052842, weight: 0.239314335249683 },
+    { r: 0.953089922969332, weight: 0.118463442528095 },
+  ] as const;
+  const stations = resolvedAirfoilStations(design.geometry);
+  let etaIntegral = 0;
+  for (let interval = 0; interval < stations.length - 1; interval += 1) {
+    const start = stations[interval].eta;
+    const length = stations[interval + 1].eta - start;
+    for (const { r, weight } of gauss) {
+      const eta = start + r * length;
+      const yM = eta * design.geometry.spanM / 2;
+      etaIntegral += wingBoxAtY(design, yM).massPerLengthKgM * length * weight;
+    }
+  }
+  return design.geometry.spanM * etaIntegral;
 }
 
 export function recoverWallStress(section: ThinWallSection, bendingMomentNm: number, torqueNm: number): WallStressResult {

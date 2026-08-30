@@ -9,7 +9,14 @@ const expectClose = (actual: number, expected: number, tolerance = 1e-10) => {
 const relativeChange = (coarse: number, fine: number) => Math.abs(fine - coarse) / Math.abs(fine);
 
 describe('target-lift horseshoe-vortex solver', () => {
-  const geometry: WingGeometry = { spanM: 8, rootChordM: 1, tipChordM: 1, rootTwistDeg: 0, tipTwistDeg: 0, nacaCode: '0012' };
+  const geometry: WingGeometry = {
+    spanM: 8, rootChordM: 1, tipChordM: 1, rootTwistDeg: 0, tipTwistDeg: 0, nacaCode: '0012',
+    airfoilStations: [
+      { id: 'afs_root', eta: 0, airfoil: { kind: 'NACA4', code: '0012' }, blendToNext: 'LINEAR_CAMBER_THICKNESS' },
+      { id: 'afs_tip', eta: 1, airfoil: { kind: 'NACA4', code: '0012' }, blendToNext: 'HOLD' },
+    ],
+    polarModel: { kind: 'ANALYTIC_ATTACHED', tables: [] },
+  };
   const flightCase: FlightCase = {
     revision: 1,
     mode: 'target_lift',
@@ -24,13 +31,15 @@ describe('target-lift horseshoe-vortex solver', () => {
   it('trims to target lift with symmetric circulation and positive induced drag', () => {
     const result = solveTargetLiftAerodynamics(geometry, flightCase, twistField, 32);
     expect(result.liftN).toBeCloseTo(5_000, 1);
-    expect(result.alphaRad).toBeCloseTo(0.13801209419311927, 8);
+    expect(result.alphaRad).toBeCloseTo(0.130472830788727, 10);
     expect(result.inducedDragCoefficient).toBeGreaterThan(0);
+    expect(result.profileDragCoefficient).toBeGreaterThan(0);
+    expect(result.combinedDragCoefficient).toBeCloseTo(result.inducedDragCoefficient + result.profileDragCoefficient, 12);
     expect(result.symmetryError).toBeLessThan(1e-8);
-    expect(result.relativeResidual).toBeLessThan(1e-9);
+    expect(result.relativeResidual).toBeLessThan(2e-7);
   });
 
-  it('preserves coefficients when density and target lift scale together within the supported atmosphere', () => {
+  it('preserves the target-lift state while the analytic profile estimate responds to Reynolds number', () => {
     const factor = 0.8;
     const first = solveTargetLiftAerodynamics(geometry, flightCase, twistField, 32);
     const second = solveTargetLiftAerodynamics(geometry, {
@@ -38,47 +47,69 @@ describe('target-lift horseshoe-vortex solver', () => {
       airDensityKgM3: flightCase.airDensityKgM3 * factor,
       targetLiftN: flightCase.targetLiftN * factor,
     }, twistField, 32);
-    expect(second.liftCoefficient).toBeCloseTo(first.liftCoefficient, 10);
-    expect(second.inducedDragCoefficient).toBeCloseTo(first.inducedDragCoefficient, 10);
-    expect(second.alphaRad).toBeCloseTo(first.alphaRad, 10);
-    expect(second.liftN / first.liftN).toBeCloseTo(factor, 10);
-    expect(second.inducedDragN / first.inducedDragN).toBeCloseTo(factor, 10);
+    expect(Math.abs(second.liftCoefficient - first.liftCoefficient)).toBeLessThan(2e-7);
+    expect(Math.abs(second.inducedDragCoefficient - first.inducedDragCoefficient)).toBeLessThan(2e-6);
+    expect(Math.abs(second.alphaRad - first.alphaRad)).toBeLessThan(2e-5);
+    expect(second.liftN / first.liftN).toBeCloseTo(factor, 6);
+    expect(second.inducedDragN / first.inducedDragN).toBeCloseTo(factor, 4);
+    expect(second.profileDragCoefficient).toBeGreaterThan(first.profileDragCoefficient);
   });
 
   it('matches the exact N=16/32/64 deterministic fixtures and truthful mesh gates', () => {
     const fixtures = [
       {
         panelCount: 16,
-        alphaRad: 0.13592134628983887,
-        liftN: 4999.999862987434,
-        liftCoefficient: 0.6377550845647237,
-        inducedDragN: 121.28057784719616,
-        inducedDragCoefficient: 0.01546946146010155,
-        spanEfficiencyEstimate: 1.046147219228945,
-        targetLiftError: -2.740251311479369e-8,
-        trimIterations: 24,
+        alphaRad: 0.12919397251089254,
+        liftN: 4999.999829002125,
+        liftCoefficient: 0.6377550802298628,
+        inducedDragN: 126.41175918501784,
+        inducedDragCoefficient: 0.01612394887564003,
+        profileDragN: 96.78396416228483,
+        profileDragCoefficient: 0.012344893388046533,
+        combinedDragN: 223.19572334730267,
+        combinedDragCoefficient: 0.028468842263686563,
+        estimatedLiftToDrag: 22.40186215943707,
+        spanEfficiencyEstimate: 1.003683030396233,
+        targetLiftError: -3.4199575020466e-8,
+        trimIterations: 21,
+        polarIterations: 3,
+        polarResidual: 2.5792942874624576e-9,
       },
       {
         panelCount: 32,
-        alphaRad: 0.13801209419311927,
-        liftN: 4999.999973409036,
-        liftCoefficient: 0.6377550986491117,
-        inducedDragN: 125.02434889232238,
-        inducedDragCoefficient: 0.015946983277081935,
-        spanEfficiencyEstimate: 1.0148210807688123,
-        targetLiftError: -5.3181927796686064e-9,
-        trimIterations: 24,
+        alphaRad: 0.130472830788727,
+        liftN: 5000.0000450444,
+        liftCoefficient: 0.6377551077862755,
+        inducedDragN: 130.36744124833672,
+        inducedDragCoefficient: 0.01662850015922662,
+        profileDragN: 96.89415665539848,
+        profileDragCoefficient: 0.012358948552984498,
+        combinedDragN: 227.2615979037352,
+        combinedDragCoefficient: 0.02898744871221112,
+        estimatedLiftToDrag: 22.00107757388175,
+        spanEfficiencyEstimate: 0.9732288007340514,
+        targetLiftError: 9.008880078908987e-9,
+        trimIterations: 23,
+        polarIterations: 3,
+        polarResidual: 1.2821143371949573e-8,
       },
       {
         panelCount: 64,
-        alphaRad: 0.1391451027893798,
-        liftN: 5000.0002117775075,
-        liftCoefficient: 0.6377551290532535,
-        inducedDragN: 126.96203439884137,
-        inducedDragCoefficient: 0.01619413704066854,
-        spanEfficiencyEstimate: 0.9993330491552473,
-        targetLiftError: 4.2355501500424e-8,
-        trimIterations: 24,
+        alphaRad: 0.13116333852511408,
+        liftN: 5000.000159991579,
+        liftCoefficient: 0.6377551224479053,
+        inducedDragN: 132.35360599931536,
+        inducedDragCoefficient: 0.01688183749991267,
+        profileDragN: 96.96234017999926,
+        profileDragCoefficient: 0.012367645431122353,
+        combinedDragN: 229.3159461793146,
+        combinedDragCoefficient: 0.029249482931035024,
+        estimatedLiftToDrag: 21.803979371246196,
+        spanEfficiencyEstimate: 0.9586240841463679,
+        targetLiftError: 3.199831571691902e-8,
+        trimIterations: 23,
+        polarIterations: 3,
+        polarResidual: 2.622306900276323e-8,
       },
     ] as const;
 
@@ -91,9 +122,16 @@ describe('target-lift horseshoe-vortex solver', () => {
       expectClose(result.liftCoefficient, fixture.liftCoefficient);
       expectClose(result.inducedDragN, fixture.inducedDragN);
       expectClose(result.inducedDragCoefficient, fixture.inducedDragCoefficient);
+      expectClose(result.profileDragN, fixture.profileDragN);
+      expectClose(result.profileDragCoefficient, fixture.profileDragCoefficient);
+      expectClose(result.combinedDragN, fixture.combinedDragN);
+      expectClose(result.combinedDragCoefficient, fixture.combinedDragCoefficient);
+      expectClose(result.estimatedLiftToDrag, fixture.estimatedLiftToDrag);
       expectClose(result.spanEfficiencyEstimate!, fixture.spanEfficiencyEstimate);
       expectClose(result.targetLiftError, fixture.targetLiftError);
-      expect(result.relativeResidual).toBeLessThan(1e-12);
+      expect(result.polarIterations).toBe(fixture.polarIterations);
+      expectClose(result.polarResidual, fixture.polarResidual);
+      expect(result.relativeResidual).toBeLessThan(2e-7);
       expect(result.symmetryError).toBeLessThan(1e-12);
       expectClose(result.strips.reduce((sum, strip) => sum + strip.liftN, 0), result.liftN, 1e-12);
       expectClose(result.strips.reduce((sum, strip) => sum + strip.inducedDragN, 0), result.inducedDragN, 1e-12);

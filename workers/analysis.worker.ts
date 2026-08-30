@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type { ProjectState, SolverFidelity, WingDesign } from '@/lib/domain/types';
+import { normalizeAnalysisException } from '@/lib/domain/publicErrors';
 import { buildAnalysisSnapshot } from '@/lib/solver/analysis';
 
 interface AnalysisWorkerRequest {
@@ -24,12 +25,13 @@ worker.onmessage = (event: MessageEvent<AnalysisWorkerRequest>) => {
     );
     worker.postMessage({ type: 'complete', snapshot });
   } catch (error) {
+    const normalized = normalizeAnalysisException(error);
     worker.postMessage({
       type: 'error',
       error: {
-        name: error instanceof Error ? error.name : 'Error',
-        code: error && typeof error === 'object' && 'code' in error ? String(error.code) : 'ANALYSIS_FAILED',
-        message: error instanceof Error ? error.message : 'Analysis worker failed.',
+        name: 'AnalysisWorkerError',
+        code: normalized.category,
+        message: normalized.message,
       },
     });
   }
