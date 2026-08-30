@@ -24,6 +24,18 @@ describe('case and configured-check editor', () => {
     expect(within(section).getByText('Static convergence')).toBeVisible();
     expect(within(section).getByText('Required')).toBeVisible();
   });
+
+  it('keeps sweep guidance behind an accessible info button', () => {
+    const project = createDefaultProject();
+    render(<CaseEditor flightCase={project.flightCase} constraints={project.constraints} editable onUpdate={() => ({ ok: true, replayed: false, data: {} })} />);
+    const info = screen.getByRole('button', { name: 'Show angle-of-attack sweep information' });
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    fireEvent.click(info);
+    expect(info).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('note')).toHaveTextContent(/Choose the shared range before running/);
+    fireEvent.click(info);
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
 });
 
 describe('V4/V5 airfoil and polar editor', () => {

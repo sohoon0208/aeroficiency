@@ -91,8 +91,9 @@ describe('interactive angle-of-attack sweep', () => {
     expect(slider).toHaveAttribute('max', '10');
     expect(slider).toHaveAttribute('step', '0.01');
     expect(screen.getByText('29/29 solved')).toBeVisible();
-    expect(screen.getByText(/0.01° display control interpolates adjacent solved wing states/)).toBeVisible();
-    expect(screen.getByText(/Official candidate checks remain tied/)).toBeVisible();
+    expect(screen.getByText('AOA SWEEP')).toBeVisible();
+    expect(screen.queryByText(/0.01° display control interpolates adjacent solved wing states/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Official candidate checks remain tied/)).not.toBeInTheDocument();
     fireEvent.input(slider, { target: { value: '-2.47' } });
     expect(onSelect).toHaveBeenCalledWith(-2.47);
     expect(slider).toHaveAttribute('aria-valuetext', '-2.47 degrees angle of attack, interpolated display');

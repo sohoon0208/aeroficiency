@@ -440,7 +440,7 @@ export function AeroficiencyWorkspace() {
         </div>}
 
         <aside id="design-workspace-panel" className={`side-panel design-panel mobile-${mobileView}`} aria-label="Design definition">
-          <div className="panel-title"><div><span className="eyebrow">DESIGN DEFINITION</span><h1>{activeDesign.label}</h1></div><span className={`design-badge ${activeDesign.kind}`}>{activeDesign.kind === 'baseline' ? `BASELINE · r${activeDesign.revision}` : `CANDIDATE · r${activeDesign.revision}`}</span></div>
+          <div className="panel-title"><div><span className="eyebrow">DESIGN DEFINITION</span><h1>{activeDesign.label}</h1></div></div>
           <div className="variant-list" aria-label="Design variants">{Object.values(project.designs).map((design) => <DesignVariantItem key={design.designId} design={design} active={design.designId === activeDesign.designId} running={runningGlobally} onSelect={() => store().selectDesign(design.designId)} onRename={(label) => store().renameDesign(design.designId, label, 'human')} />)}</div>
           <button className="candidate-button" type="button" onClick={createCandidate}>＋ Create candidate variant</button>
           {activeDesign.kind === 'candidate' && <button className="baseline-button" type="button" disabled={runningGlobally} onClick={setActiveBaseline}>◆ Set active design as Baseline</button>}
