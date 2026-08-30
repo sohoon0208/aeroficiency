@@ -11,7 +11,7 @@ const fmt = (value: number, digits = 2) => value.toLocaleString('en-GB', { minim
 
 interface PlotPoint { x: number; y: number }
 
-function LinePlot({ title, subtitle, points, xLabel, yLabel, operatingPoint }: { title: string; subtitle: string; points: PlotPoint[]; xLabel: string; yLabel: string; operatingPoint?: PlotPoint }) {
+function LinePlot({ title, subtitle, points, xLabel, yLabel, operatingPoint, zeroFloor = false }: { title: string; subtitle: string; points: PlotPoint[]; xLabel: string; yLabel: string; operatingPoint?: PlotPoint; zeroFloor?: boolean }) {
   const width = 520;
   const height = 190;
   const xValues = points.map((point) => point.x);
@@ -22,7 +22,7 @@ function LinePlot({ title, subtitle, points, xLabel, yLabel, operatingPoint }: {
   const rawLow = Math.min(...yValues);
   const rawHigh = Math.max(...yValues);
   const padding = Math.max(1e-9, (rawHigh - rawLow) * 0.08);
-  const yLow = rawLow - padding;
+  const yLow = zeroFloor ? Math.max(0, rawLow - padding) : rawLow - padding;
   const yHigh = rawHigh + padding;
   const x = (value: number) => 42 + (value - xLow) / Math.max(xHigh - xLow, 1e-9) * (width - 58);
   const y = (value: number) => 12 + (yHigh - value) / Math.max(yHigh - yLow, 1e-9) * (height - 42);
@@ -72,11 +72,11 @@ export function PerformanceLab({ design, analysis, flightCase, selectedEta, onSe
     <div className="performance-local-facts"><span><b>{section.label}</b>local section</span><span><b>{condition.reynoldsNumber.toExponential(3)}</b>Re</span><span><b>{fmt(polar.current.cl, 3)}</b>C<sub>l</sub></span><span><b>{fmt(polar.current.cd, 5)}</b>C<sub>d</sub></span><span><b>{fmt(polar.current.cm, 4)}</b>C<sub>m,c/4</sub></span><span><b>{polar.current.state.replaceAll('_', ' ')}</b>range state</span></div>
     <div className="performance-plots">
       <LinePlot title="Wing lift curve" subtitle="Fixed-AoA coupled sweep" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.liftCoefficient }))} xLabel="α (deg)" yLabel="CL" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.liftCoefficient }} />
-      <LinePlot title="Wing drag curve" subtitle="Profile + wake-induced estimate" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.combinedDragCoefficientEstimate }))} xLabel="α (deg)" yLabel="CD" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.combinedDragCoefficientEstimate }} />
+      <LinePlot title="Wing drag curve" subtitle="Profile + wake-induced estimate" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.combinedDragCoefficientEstimate }))} xLabel="α (deg)" yLabel="CD" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.combinedDragCoefficientEstimate }} zeroFloor />
       <LinePlot title="Wing efficiency" subtitle="Estimated wing-only L/D" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.estimatedWingLiftToDrag }))} xLabel="α (deg)" yLabel="L/D" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.estimatedWingLiftToDrag }} />
       <LinePlot title="Tip deflection response" subtitle="Fixed-AoA torsion-coupled sweep" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.tipDeflectionM }))} xLabel="α (deg)" yLabel="m" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.tipDeflectionM }} />
-      <LinePlot title="Spanwise Reynolds number" subtitle="ρVc/μ at structural stations" points={analysis.stations.map((station) => ({ x: station.eta, y: station.reynoldsNumber / 1e6 }))} xLabel="η" yLabel="Re ×10⁶" operatingPoint={{ x: condition.eta, y: condition.reynoldsNumber / 1e6 }} />
-      <LinePlot title="Profile drag distribution" subtitle="q c Cd · semispan" points={analysis.stations.map((station) => ({ x: station.eta, y: station.profileDragPerSpanNpm }))} xLabel="η" yLabel="N/m" operatingPoint={{ x: condition.eta, y: localProfileDragPerSpan }} />
+      <LinePlot title="Spanwise Reynolds number" subtitle="ρVc/μ at structural stations" points={analysis.stations.map((station) => ({ x: station.eta, y: station.reynoldsNumber / 1e6 }))} xLabel="η" yLabel="Re ×10⁶" operatingPoint={{ x: condition.eta, y: condition.reynoldsNumber / 1e6 }} zeroFloor />
+      <LinePlot title="Profile drag distribution" subtitle="q c Cd · semispan" points={analysis.stations.map((station) => ({ x: station.eta, y: station.profileDragPerSpanNpm }))} xLabel="η" yLabel="N/m" operatingPoint={{ x: condition.eta, y: localProfileDragPerSpan }} zeroFloor />
       <LinePlot title="Local section polar" subtitle={`${section.label} · Re ${condition.reynoldsNumber.toExponential(2)}`} points={polar.points} xLabel="α (deg)" yLabel="Cl" operatingPoint={{ x: condition.localIncidenceDeg, y: polar.current.cl }} />
     </div>
     <div className="polar-diagnostics"><span><b>{analysis.polarDiagnostics.withinRangeStations}</b> within table range</span><span><b>{analysis.polarDiagnostics.analyticEstimateStations}</b> analytic estimate</span><span><b>{analysis.polarDiagnostics.extrapolatedAlphaStations}</b> α extrapolated</span><span><b>{analysis.polarDiagnostics.outsideReynoldsStations}</b> Re outside</span><span><b>{analysis.polarDiagnostics.outsideAlphaStations}</b> α outside</span></div>

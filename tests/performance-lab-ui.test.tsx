@@ -33,6 +33,7 @@ describe('V5 Reynolds and drag evidence lab', () => {
     expect(screen.getByRole('img', { name: /Tip deflection response/ })).toBeVisible();
     expect(screen.getByRole('img', { name: /Spanwise Reynolds number/ })).toBeVisible();
     expect(screen.getByRole('img', { name: /Profile drag distribution/ })).toBeVisible();
+    expect(screen.getByRole('img', { name: /Profile drag distribution/ })).toHaveTextContent('0.0');
     expect(screen.getByRole('img', { name: /Local section polar/ })).toBeVisible();
     expect(screen.getByText(/attached-flow surrogate, not XFOIL or experiment/)).toBeVisible();
     expect(screen.getByText('All stations in declared range')).toBeVisible();
