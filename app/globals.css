@@ -91,7 +91,6 @@ textarea:disabled,select:disabled { cursor: not-allowed; opacity: .55; }
 .tab-strip { grid-template-columns: repeat(4,minmax(0,1fr)); overflow: hidden; }
 .tab-strip button { min-width: 0; padding-inline: 3px; white-space: nowrap; }
 .editor-intro { margin: -2px 0 10px; color: var(--text-tertiary); font-size: 9px; line-height: 1.5; }
-.airfoil-catalog-note { margin: -2px 0 10px; padding: 7px 8px; border-left: 2px solid var(--warning); background: rgba(245,193,94,.045); color: var(--text-tertiary); font-size: 8px; line-height: 1.45; }.airfoil-catalog-note strong { color: #dfc38f; }
 .capability-badge { padding: 2px 5px; border: 1px solid rgba(184,156,255,.25); border-radius: 3px; color: var(--agent)!important; }
 .airfoil-station-list { display: grid; gap: 9px; }
 .airfoil-station-card { min-width: 0; padding: 9px; border: 1px solid rgba(94,128,154,.22); border-radius: 5px; background: #09151f; }
