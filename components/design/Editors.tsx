@@ -74,7 +74,6 @@ export function GeometryEditor({ design, editable, changedFields, changedActor, 
           <NumberInput label="Tip twist" value={design.geometry.tipTwistDeg} unit="deg" min={-6} max={3} step={0.1} disabled={!editable} changedBy={changed('tipTwistDeg') ? changedActor : null} onCommit={(tipTwistDeg) => onUpdate({ tipTwistDeg })} />
         </div>
       </section>
-      <div className="model-note"><span>↗</span><p><strong>Section definitions are spanwise.</strong><br />Use the Airfoils tab to add root, intermediate, and tip sections.</p></div>
       {!editable && <div className="protected-note"><span aria-hidden="true">◆</span><p><strong>This design is read-only.</strong><br />Editing is unavailable in this view.</p></div>}
     </div>
   );

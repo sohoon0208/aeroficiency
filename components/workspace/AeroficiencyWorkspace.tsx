@@ -309,7 +309,9 @@ export function AeroficiencyWorkspace() {
     ? analysisRun.progress
       ? `${analysisRun.progress.phase} · iteration ${analysisRun.progress.iteration} of ${analysisRun.progress.maxIterations}`
       : 'Starting local analysis worker…'
-    : immutableState.detail;
+    : immutableState.key === 'awaiting'
+      ? ''
+      : immutableState.detail;
   const effectiveDeformed = Boolean(deformed && visualAnalysis && mode !== 'section' && mode !== 'performance');
   const warnings = analysis?.warnings ?? [...MODEL_WARNINGS];
   const runDesign = runAlert ? project.designs[runAlert.designId] ?? null : null;
@@ -362,7 +364,6 @@ export function AeroficiencyWorkspace() {
           <div className="variant-list" aria-label="Design variants">{Object.values(project.designs).map((design) => <button key={design.designId} type="button" className={`${design.kind} ${design.designId === activeDesign.designId ? 'active' : ''}`} onClick={() => store().selectDesign(design.designId)}><span aria-hidden="true">{design.kind === 'baseline' ? '◆' : '◇'}</span><p><strong>{design.label}</strong><small>Revision {design.revision} · {design.kind === 'baseline' ? 'Baseline reference · Editable' : 'Candidate · Editable'}</small></p>{design.designId === activeDesign.designId && <b>ACTIVE</b>}</button>)}</div>
           <button className="candidate-button" type="button" onClick={createCandidate}>＋ Create candidate variant</button>
           {activeDesign.kind === 'candidate' && <button className="baseline-button" type="button" disabled={runningGlobally} onClick={setActiveBaseline}>◆ Set active design as Baseline</button>}
-          {candidateCount === 0 && <div className="comparison-onboarding" role="status"><span aria-hidden="true">⚠</span><p><strong>Create one candidate to compare designs.</strong><br />The Baseline remains directly editable.</p></div>}
           <div className="tab-strip" role="tablist" aria-label="Design editors">{([['geometry', 'Planform'], ['airfoils', 'Airfoils'], ['structure', 'Structure'], ['case', 'Case']] as const).map(([key, label]) => <button key={key} id={`tab-${key}`} type="button" role="tab" tabIndex={editorTab === key ? 0 : -1} aria-selected={editorTab === key} aria-controls={`panel-${key}`} className={editorTab === key ? 'active' : ''} onClick={() => setEditorTab(key)} onKeyDown={(event) => moveTabFocus(event, ['geometry', 'airfoils', 'structure', 'case'] as const, editorTab, setEditorTab, 'tab')}>{label}</button>)}</div>
           <div id="panel-geometry" role="tabpanel" aria-labelledby="tab-geometry" className="editor-panel" hidden={editorTab !== 'geometry'}>
             {editorTab === 'geometry' && <GeometryEditor key={`${activeDesign.designId}-${activeDesign.revision}`} design={activeDesign} editable={editable} changedFields={activeMutationHighlight?.paths ?? []} changedActor={activeMutationHighlight?.actor ?? null} onUpdate={updateGeometry} />}
@@ -381,7 +382,7 @@ export function AeroficiencyWorkspace() {
         <section id="model-workspace-panel" className={`center-stage mobile-${mobileView}`} aria-label="Engineering model and plots">
           <div className="stage-heading"><div><span className="eyebrow">ENGINEERING VIEWPORT</span><h2>{activeDesign.label} · {mode === 'section' ? 'analysis-linked section diagnostic' : mode === 'performance' ? 'Reynolds and drag evidence' : 'linked full-wing evidence'}</h2></div><div className="mode-controls"><div className="view-tabs" role="tablist" aria-label="Visualization mode">{VISUALIZATION_TABS.map(([key, label]) => <button key={key} id={`view-tab-${key}`} type="button" role="tab" tabIndex={mode === key ? 0 : -1} aria-selected={mode === key} aria-controls="model-view-panel" className={mode === key ? 'active' : ''} onClick={() => setMode(key)} onKeyDown={(event) => moveTabFocus(event, VISUALIZATION_TABS.map(([tab]) => tab), mode, setMode, 'view-tab')}>{label}</button>)}</div><button type="button" className={`deform-toggle ${effectiveDeformed ? 'active' : ''}`} aria-pressed={effectiveDeformed} disabled={!visualAnalysis || mode === 'section' || mode === 'performance'} onClick={() => setDeformed((value) => !value)}>{mode === 'section' || mode === 'performance' ? 'Diagnostic view' : effectiveDeformed ? 'Deformed ×6' : 'Undeformed'}</button></div></div>
           <div id="model-view-panel" role="tabpanel" aria-labelledby={`view-tab-${mode}`} className={`viewport-card ${mode === 'section' || mode === 'performance' ? 'section-mode' : ''} ${presentation.focusedPanel === 'station' ? 'agent-focused' : ''}`}>
-            <div className={`solver-strip ${runningForActive ? 'running' : immutableState.key}`}><span><i />{runningForActive ? 'SOLVER RUNNING' : immutableState.label}</span><span>{progressText}</span>{metricAnalysis && <><span>Analysis {metricAnalysis.analysisId}</span><span>r{metricAnalysis.designRevision} · {metricAnalysis.fidelity}</span></>}</div>
+            <div className={`solver-strip ${runningForActive ? 'running' : immutableState.key}`}><span><i />{runningForActive ? 'SOLVER RUNNING' : immutableState.label}</span>{progressText && <span>{progressText}</span>}{metricAnalysis && <><span>Analysis {metricAnalysis.analysisId}</span><span>r{metricAnalysis.designRevision} · {metricAnalysis.fidelity}</span></>}</div>
             {mode === 'section'
               ? <SectionFlowLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} />
               : mode === 'performance'

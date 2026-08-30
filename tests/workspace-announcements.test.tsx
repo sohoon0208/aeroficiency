@@ -328,4 +328,11 @@ describe('workspace announcement ownership', () => {
     expect(strip).toHaveTextContent('Starting local analysis worker…');
     expect(strip).not.toHaveTextContent('Run the solver to evaluate this revision.');
   });
+
+  it('keeps the awaiting solver strip concise', () => {
+    render(<AeroficiencyWorkspace />);
+    const strip = document.querySelector('.solver-strip');
+    expect(strip).toHaveTextContent('AWAITING ANALYSIS');
+    expect(strip).not.toHaveTextContent('Run the solver to evaluate this revision.');
+  });
 });
