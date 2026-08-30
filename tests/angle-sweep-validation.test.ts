@@ -5,7 +5,7 @@ import type { AirfoilDefinition, WingDesign } from '@/lib/domain/types';
 import { solveFixedAngleAerodynamics } from '@/lib/solver/aero';
 import { localAirfoilSection } from '@/lib/solver/airfoilSections';
 import { buildAnalysisSnapshot } from '@/lib/solver/analysis';
-import { solveAirfoilSectionPotentialFlow } from '@/lib/solver/panel2d';
+import { solveAirfoilSectionPotentialFlow, traceSectionStreamlines } from '@/lib/solver/panel2d';
 
 function designWithUniformAirfoil(airfoil: AirfoilDefinition): WingDesign {
   const design = createBaselineDesign();
@@ -83,6 +83,10 @@ describe('AoA sweep and 2D airfoil validation matrix', () => {
       expect(panels.every((result) => Math.abs(result.sourceFluxResidualM2ps) / result.freeStreamMps < 0.01), label).toBe(true);
       expect(panels[0].liftCoefficient, label).toBeLessThan(panels[1].liftCoefficient);
       expect(panels[1].liftCoefficient, label).toBeLessThan(panels[2].liftCoefficient);
+      expect(panels.every((result) => traceSectionStreamlines(result).every((line) =>
+        line.points.length >= 2
+        && Math.abs(line.points[0].x + 0.55) < 1e-12
+        && line.points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.z)))), label).toBe(true);
     });
   });
 

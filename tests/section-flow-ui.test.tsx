@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SectionFlowLab } from '@/components/flow/SectionFlowLab';
+import { analysisAtSweepPoint, sweepPointAtAngle } from '@/lib/domain/angleSweep';
 import { createDefaultProject } from '@/lib/domain/defaults';
 import { buildAnalysisSnapshot } from '@/lib/solver/analysis';
 import { deriveSectionCondition } from '@/lib/visualization/sectionFlow';
@@ -39,10 +40,12 @@ describe('V3 Section Flow Lab', () => {
     render(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={onSelectEta} />);
     expect(screen.getByRole('heading', { name: /NACA 2412.*wing α/ })).toBeVisible();
     expect(screen.getByText(new RegExp(`Immutable analysis ${analysis.analysisId}`))).toBeVisible();
-    expect(screen.getByRole('img', { name: /Inviscid streamlines and local velocity vectors/ })).toBeVisible();
+    expect(screen.getByRole('img', { name: /Wind-axis inviscid attached-flow streamlines/ })).toBeVisible();
     expect(screen.getByRole('img', { name: /Upper and lower surface pressure coefficient/ })).toBeVisible();
+    expect(screen.getByText(/Wind axes · horizontal U∞/)).toBeVisible();
     expect(screen.getByText(/diagnostic does not alter the main wing analysis/)).toBeVisible();
     expect(screen.getByText(/Two-dimensional inviscid attached potential-flow diagnostic/)).toBeVisible();
+    expect(screen.getByText(/cannot predict boundary layers, separation, stall/)).toBeVisible();
     expect(screen.getByText(/Kutta residual/)).toBeVisible();
     expect(screen.getByText(/Re · coupled polar input/)).toBeVisible();
     expect(screen.getByRole('combobox', { name: 'Section panel resolution' })).toHaveValue('120');
@@ -50,6 +53,29 @@ describe('V3 Section Flow Lab', () => {
     expect(screen.getByRole('combobox', { name: 'Section panel resolution' })).toHaveValue('160');
     fireEvent.change(screen.getByRole('slider', { name: /Linked 3D station/ }), { target: { value: '0.7' } });
     expect(onSelectEta).toHaveBeenCalledWith(0.7);
+  });
+
+  it('rotates the rendered airfoil when the selected angle of attack changes', () => {
+    const { state, design, analysis } = fixture();
+    const lowPoint = sweepPointAtAngle(analysis, -4);
+    const highPoint = sweepPointAtAngle(analysis, 10);
+    expect(lowPoint).not.toBeNull();
+    expect(highPoint).not.toBeNull();
+    const lowAnalysis = analysisAtSweepPoint(analysis, lowPoint!);
+    const highAnalysis = analysisAtSweepPoint(analysis, highPoint!);
+    const rendered = render(<SectionFlowLab design={design} analysis={lowAnalysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={() => undefined} />);
+    const lowGraphic = rendered.container.querySelector<SVGElement>('svg[data-reference-frame="wind"]')!;
+    const lowIncidence = Number(lowGraphic.dataset.incidenceDeg);
+    const lowOutline = lowGraphic.querySelector('.section-airfoil')!.getAttribute('points');
+
+    rendered.rerender(<SectionFlowLab design={design} analysis={highAnalysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={() => undefined} />);
+    const highGraphic = rendered.container.querySelector<SVGElement>('svg[data-reference-frame="wind"]')!;
+    const highIncidence = Number(highGraphic.dataset.incidenceDeg);
+    const highOutline = highGraphic.querySelector('.section-airfoil')!.getAttribute('points');
+
+    expect(highIncidence).toBeGreaterThan(lowIncidence);
+    expect(highOutline).not.toBe(lowOutline);
+    expect(highGraphic).toHaveAccessibleName(new RegExp(`airfoil at ${highIncidence.toFixed(2)} degrees local incidence`));
   });
 
   it('fails closed without a current converged analysis', () => {

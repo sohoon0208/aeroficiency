@@ -42,6 +42,7 @@ export interface SectionPotentialFlowSolution {
 
 export interface SectionStreamline {
   id: string;
+  /** Wind-axis coordinates: the undisturbed free stream is horizontal and +x. */
   points: Point2[];
   termination: 'bounds' | 'solid' | 'low_speed' | 'step_limit' | 'non_finite';
 }
@@ -151,6 +152,47 @@ function unitVortexVelocity(target: Point2, panel: Panel2D): Point2 {
 
 function dot(left: Point2, right: Point2) {
   return left.x * right.x + left.z * right.z;
+}
+
+const QUARTER_CHORD = { x: 0.25, z: 0 } as const;
+
+/**
+ * Rotates an airfoil-fixed point into wind axes about quarter chord. Positive
+ * incidence therefore raises the leading edge and keeps the undisturbed flow
+ * horizontal from left to right.
+ */
+export function sectionPointToWindAxes(point: Point2, incidenceDeg: number): Point2 {
+  const angle = incidenceDeg * Math.PI / 180;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const dx = point.x - QUARTER_CHORD.x;
+  const dz = point.z - QUARTER_CHORD.z;
+  return {
+    x: QUARTER_CHORD.x + cosine * dx + sine * dz,
+    z: QUARTER_CHORD.z - sine * dx + cosine * dz,
+  };
+}
+
+export function windPointToSectionAxes(point: Point2, incidenceDeg: number): Point2 {
+  const angle = incidenceDeg * Math.PI / 180;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const dx = point.x - QUARTER_CHORD.x;
+  const dz = point.z - QUARTER_CHORD.z;
+  return {
+    x: QUARTER_CHORD.x + cosine * dx - sine * dz,
+    z: QUARTER_CHORD.z + sine * dx + cosine * dz,
+  };
+}
+
+export function sectionVectorToWindAxes(vector: Point2, incidenceDeg: number): Point2 {
+  const angle = incidenceDeg * Math.PI / 180;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return {
+    x: cosine * vector.x + sine * vector.z,
+    z: -sine * vector.x + cosine * vector.z,
+  };
 }
 
 function selfSourceVelocity(panel: Panel2D) {
@@ -292,7 +334,21 @@ function pointInsideContour(point: Point2, panels: readonly Panel2D[]) {
   return inside;
 }
 
+function pointSegmentDistance(point: Point2, start: Point2, end: Point2) {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const lengthSquared = dx * dx + dz * dz;
+  if (!(lengthSquared > 0)) return Math.hypot(point.x - start.x, point.z - start.z);
+  const fraction = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.z - start.z) * dz) / lengthSquared));
+  return Math.hypot(point.x - (start.x + fraction * dx), point.z - (start.z + fraction * dz));
+}
+
+function distanceToContour(point: Point2, panels: readonly Panel2D[]) {
+  return panels.reduce((minimum, panel) => Math.min(minimum, pointSegmentDistance(point, panel.start, panel.end)), Number.POSITIVE_INFINITY);
+}
+
 function sectionDirection(point: Point2, solution: SectionPotentialFlowSolution) {
+  if (pointInsideContour(point, solution.panels)) return null;
   const velocity = sectionVelocityAt(point, solution);
   const speed = Math.hypot(velocity.x, velocity.z);
   return speed > solution.freeStreamMps * 1e-4 && Number.isFinite(speed) ? { x: velocity.x / speed, z: velocity.z / speed } : null;
@@ -314,17 +370,22 @@ function sectionRk4(point: Point2, step: number, solution: SectionPotentialFlowS
 }
 
 export function traceSectionStreamlines(solution: SectionPotentialFlowSolution, lineCount = 17): SectionStreamline[] {
-  const seeds = Array.from({ length: lineCount }, (_, index) => ({ x: -0.42, z: -0.48 + 0.96 * index / (lineCount - 1) }));
-  return seeds.map((seed, index) => {
+  if (!Number.isInteger(lineCount) || lineCount < 3 || lineCount > 41) throw new Error('Section streamline count must be an integer from 3 to 41.');
+  const windSeeds = Array.from({ length: lineCount }, (_, index) => ({ x: -0.55, z: -0.52 + 1.04 * index / (lineCount - 1) }));
+  return windSeeds.map((windSeed, index) => {
     const points: Point2[] = [];
-    let point = seed;
+    let point = windPointToSectionAxes(windSeed, solution.incidenceDeg);
     let termination: SectionStreamline['termination'] = 'step_limit';
-    for (let stepIndex = 0; stepIndex < 260; stepIndex += 1) {
+    for (let stepIndex = 0; stepIndex < 420; stepIndex += 1) {
       if (!Number.isFinite(point.x) || !Number.isFinite(point.z)) { termination = 'non_finite'; break; }
-      if (point.x < -0.5 || point.x > 1.65 || point.z < -0.68 || point.z > 0.68) { termination = 'bounds'; break; }
-      if (pointInsideContour(point, solution.panels)) { termination = 'solid'; break; }
-      points.push(point);
-      const next = sectionRk4(point, 0.012, solution);
+      const windPoint = sectionPointToWindAxes(point, solution.incidenceDeg);
+      if (windPoint.x < -0.58 || windPoint.x > 1.72 || windPoint.z < -0.68 || windPoint.z > 0.68) { termination = 'bounds'; break; }
+      const clearance = distanceToContour(point, solution.panels);
+      if (pointInsideContour(point, solution.panels) || clearance < 6e-4) { termination = 'solid'; break; }
+      points.push(windPoint);
+      /** The step shrinks near the contour so an integration segment cannot tunnel through a thin section. */
+      const integrationStep = Math.min(0.012, Math.max(0.0004, clearance * 0.32));
+      const next = sectionRk4(point, integrationStep, solution);
       if (!next) { termination = 'low_speed'; break; }
       point = next;
     }
@@ -335,10 +396,11 @@ export function traceSectionStreamlines(solution: SectionPotentialFlowSolution, 
 export function sampleSectionVelocityVectors(solution: SectionPotentialFlowSolution): SectionVelocityVector[] {
   const vectors: SectionVelocityVector[] = [];
   for (const z of [-0.36, -0.18, 0, 0.18, 0.36]) {
-    for (const x of [-0.18, 0.16, 0.5, 0.84, 1.18]) {
+    for (const x of [-0.28, 0.12, 0.5, 0.88, 1.28]) {
       const point = { x, z };
-      if (pointInsideContour(point, solution.panels)) continue;
-      const velocity = sectionVelocityAt(point, solution);
+      const sectionPoint = windPointToSectionAxes(point, solution.incidenceDeg);
+      if (pointInsideContour(sectionPoint, solution.panels)) continue;
+      const velocity = sectionVectorToWindAxes(sectionVelocityAt(sectionPoint, solution), solution.incidenceDeg);
       if (Number.isFinite(velocity.x) && Number.isFinite(velocity.z)) vectors.push({ point, velocity });
     }
   }

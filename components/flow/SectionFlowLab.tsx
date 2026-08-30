@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import type { AnalysisSnapshot, FlightCase, WingDesign } from '@/lib/domain/types';
 import {
   sampleSectionVelocityVectors,
+  sectionPointToWindAxes,
   solveAirfoilSectionPotentialFlow,
   traceSectionStreamlines,
   type Point2,
@@ -22,19 +23,23 @@ function pointsAttribute(points: readonly Point2[], x: (value: number) => number
 function SectionFlowField({ solution, sectionLabel }: { solution: SectionPotentialFlowSolution; sectionLabel: string }) {
   const width = 660;
   const height = 270;
-  const xMinimum = -0.45;
-  const xMaximum = 1.62;
-  const zMinimum = -0.58;
-  const zMaximum = 0.58;
+  const xMinimum = -0.58;
+  const xMaximum = 1.72;
+  const zMinimum = -0.62;
+  const zMaximum = 0.62;
   const x = (value: number) => 22 + (value - xMinimum) / (xMaximum - xMinimum) * (width - 42);
   const z = (value: number) => 12 + (zMaximum - value) / (zMaximum - zMinimum) * (height - 32);
   const lines = useMemo(() => traceSectionStreamlines(solution), [solution]);
   const vectors = useMemo(() => sampleSectionVelocityVectors(solution), [solution]);
-  const outline = [...solution.panels.map((panel) => panel.start), solution.panels.at(-1)!.end];
+  const outline = [...solution.panels.map((panel) => panel.start), solution.panels.at(-1)!.end]
+    .map((point) => sectionPointToWindAxes(point, solution.incidenceDeg));
+  const leadingEdge = sectionPointToWindAxes({ x: 0, z: 0 }, solution.incidenceDeg);
+  const trailingEdge = sectionPointToWindAxes({ x: 1, z: 0 }, solution.incidenceDeg);
+  const stagnation = sectionPointToWindAxes({ x: solution.stagnation.xOverC, z: solution.stagnation.zOverC }, solution.incidenceDeg);
   return (
     <figure className="section-figure flow-field-figure">
-      <figcaption><strong>Inviscid section streamlines</strong><span>Total velocity · chord-normalized coordinates</span></figcaption>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Inviscid streamlines and local velocity vectors around ${sectionLabel} at ${solution.incidenceDeg.toFixed(2)} degrees incidence`}>
+      <figcaption><strong>Inviscid attached-flow streamlines</strong><span>Wind axes · horizontal U∞ · adaptive integration</span></figcaption>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" data-reference-frame="wind" data-incidence-deg={solution.incidenceDeg.toFixed(6)} aria-label={`Wind-axis inviscid attached-flow streamlines and local velocity vectors around ${sectionLabel} with the airfoil at ${solution.incidenceDeg.toFixed(2)} degrees local incidence`}>
         <defs><marker id="section-arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="4" markerHeight="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" /></marker></defs>
         {[0, 0.5, 1].map((value) => <line key={`x-${value}`} className="section-grid" x1={x(value)} x2={x(value)} y1="10" y2={height - 20} />)}
         {[-0.4, 0, 0.4].map((value) => <line key={`z-${value}`} className="section-grid" x1="20" x2={width - 20} y1={z(value)} y2={z(value)} />)}
@@ -44,11 +49,16 @@ function SectionFlowField({ solution, sectionLabel }: { solution: SectionPotenti
           const scale = 0.055;
           return <line key={`vector-${index}`} className="section-vector" x1={x(point.x)} y1={z(point.z)} x2={x(point.x + scale * velocity.x / magnitude)} y2={z(point.z + scale * velocity.z / magnitude)} markerEnd="url(#section-arrow)" />;
         })}
+        <line className="section-chord-reference" x1={x(leadingEdge.x)} y1={z(leadingEdge.z)} x2={x(trailingEdge.x)} y2={z(trailingEdge.z)} />
         <polygon className="section-airfoil" points={pointsAttribute(outline, x, z)} />
-        <circle className="stagnation-point" cx={x(solution.stagnation.xOverC)} cy={z(solution.stagnation.zOverC)} r="4" />
-        <text x={x(0)} y={height - 6}>LE · x/c 0</text><text textAnchor="end" x={x(1)} y={height - 6}>TE · x/c 1</text>
+        <circle className="stagnation-point" cx={x(stagnation.x)} cy={z(stagnation.z)} r="4" />
+        <line className="section-freestream-reference" x1={x(-0.38)} y1={z(0.53)} x2={x(-0.04)} y2={z(0.53)} markerEnd="url(#section-arrow)" />
+        <text className="section-flow-label" x={x(-0.38)} y={z(0.53) - 7}>U∞ · WIND AXIS</text>
+        <text className="section-angle-label" textAnchor="end" x={width - 16} y="24">LOCAL α {solution.incidenceDeg.toFixed(2)}°</text>
+        <text className="section-point-label" textAnchor="end" x={x(leadingEdge.x) - 5} y={z(leadingEdge.z) - 6}>LE</text>
+        <text className="section-point-label" x={x(trailingEdge.x) + 5} y={z(trailingEdge.z) - 6}>TE</text>
       </svg>
-      <div className="section-legend"><span><i className="legend-stream" />Streamline</span><span><i className="legend-vector" />Velocity direction</span><span><i className="legend-stagnation" />Approx. surface stagnation</span></div>
+      <div className="section-legend"><span><i className="legend-stream" />Streamline</span><span><i className="legend-vector" />Velocity direction</span><span><i className="legend-chord" />Chord / AoA attitude</span><span><i className="legend-stagnation" />Approx. surface stagnation</span></div>
     </figure>
   );
 }
@@ -119,7 +129,7 @@ export function SectionFlowLab({
       </div>
       <div className="section-visual-grid"><SectionFlowField solution={solution} sectionLabel={section.label} /><CpPlot solution={solution} sectionLabel={section.label} /></div>
       <div className="section-validation-strip"><span>Kutta residual <b>{Math.abs(solution.kuttaResidualMps).toExponential(2)} m/s</b></span><span>Panel source-flux residual <b>{Math.abs(solution.sourceFluxResidualM2ps).toExponential(2)} m²/s</b></span><span>Numerical inviscid C<sub>d</sub> residual <b>{solution.dragCoefficientNumerical.toExponential(2)}</b></span></div>
-      <p className="scientific-warning"><strong>Two-dimensional inviscid attached potential-flow diagnostic.</strong> This diagnostic does not alter the main wing analysis. Its Cp and streamline field do not supply viscous drag to the wing solver. Profile drag comes only from the disclosed SectionPolar source. Local incidence = selected wing AoA + geometric twist + elastic twist − signed induced-flow angle; positive induced angle means downwash.</p>
+      <p className="scientific-warning"><strong>Two-dimensional inviscid attached potential-flow diagnostic.</strong> The wind-axis view keeps U∞ horizontal and rotates the section by its solved local incidence. Streamlines use adaptive integration through the panel solution&apos;s total-velocity field. This is not CFD: it cannot predict boundary layers, separation, stall, or a viscous wake, so attached lines at high AoA are not evidence that real flow remains attached. The diagnostic does not alter the main wing analysis; profile drag comes only from the disclosed SectionPolar source. Local incidence = selected wing AoA + geometric twist + elastic twist − signed induced-flow angle; positive induced angle means downwash.</p>
       <details className="section-data-table"><summary>Accessible Cp table</summary><div><table><caption>Surface pressure coefficients for analysis {condition.analysisId}</caption><thead><tr><th scope="col">Surface</th><th scope="col">x/c</th><th scope="col">z/c</th><th scope="col">Cp</th><th scope="col">Vt/V∞</th></tr></thead><tbody>{solution.surface.map((point, index) => <tr key={`${point.surface}-${index}`}><th scope="row">{point.surface}</th><td>{point.xOverC.toFixed(4)}</td><td>{point.zOverC.toFixed(4)}</td><td>{point.cp.toFixed(5)}</td><td>{point.tangentialVelocityRatio.toFixed(5)}</td></tr>)}</tbody></table></div></details>
     </section>
   );
