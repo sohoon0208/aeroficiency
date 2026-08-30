@@ -337,6 +337,17 @@ describe('rendered presentation-state truth matrix', () => {
     expect(screen.getByRole('region', { name: 'Two-dimensional section flow laboratory' })).toBeVisible();
   });
 
+  it('keeps the span-station scrubber in the selected-station evidence row', () => {
+    loadScenario(matrixFixtures().freshBaseline);
+    render(<AeroficiencyWorkspace />);
+    const evidence = document.getElementById('selected-station-evidence');
+    if (!evidence) throw new Error('Missing selected-station evidence row.');
+    const scrubber = within(evidence).getByRole('slider', { name: 'Selected span station' });
+    fireEvent.change(scrubber, { target: { value: '0.322' } });
+    expect(within(evidence).getByText('η 0.322')).toBeVisible();
+    expect(useProjectStore.getState().project.selectedEta).toBe(0.322);
+  });
+
   it('withholds full-wing evidence when the retained engineering analysis is stale', () => {
     loadScenario(matrixFixtures().staleCandidate);
     render(<AeroficiencyWorkspace />);

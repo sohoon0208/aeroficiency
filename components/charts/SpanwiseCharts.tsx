@@ -63,7 +63,6 @@ export function SpanwiseCharts({ mode, design, analysis, selectedEta, onSelect }
   if (!series.length) return <div className="chart-empty"><span>∿</span><p><strong>No current converged analysis for this revision.</strong><br />Run the solver to populate {mode === 'aero' ? 'aerodynamic load and twist' : 'deflection and modeled-yield-ratio'} plots.</p></div>;
   return (
     <div className="chart-deck">
-      <label className="station-scrubber"><span>Selected station</span><input type="range" min="0" max="1" step="0.001" value={selectedEta} onChange={(event) => onSelect(Number(event.target.value))} aria-valuetext={`eta ${selectedEta.toFixed(3)}`} /><strong>η {selectedEta.toFixed(3)}</strong></label>
       <div className="chart-grid">{series.map((item) => <EngineeringPlot key={item.label} series={item} selectedEta={selectedEta} onSelect={onSelect} />)}</div>
       <details className="chart-table"><summary>Table alternative</summary><div><table><caption>Right-semispan values for {series.map((item) => item.label).join(' and ')}</caption><thead><tr><th scope="col">η</th>{series.map((item) => <th scope="col" key={item.label}>{item.label} ({item.unit})</th>)}</tr></thead><tbody>{series[0].points.map((point, index) => <tr key={point.eta}><th scope="row">{point.eta.toFixed(3)}</th>{series.map((item) => <td key={item.label}>{item.points[index]?.value === null || item.points[index]?.value === undefined ? '—' : item.points[index].value!.toPrecision(5)}</td>)}</tr>)}</tbody></table></div></details>
     </div>
