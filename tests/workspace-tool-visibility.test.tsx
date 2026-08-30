@@ -55,8 +55,9 @@ describe('visible Site Tool mutation causality', () => {
       candidateId = created.data.designId;
       useProjectStore.getState().selectDesign(baseline.designId);
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Results' }));
-    const focusOwner = screen.getByRole('button', { name: 'Results' });
+    const mobileNavigation = screen.getByRole('navigation', { name: 'Workspace views' });
+    fireEvent.click(within(mobileNavigation).getByRole('button', { name: 'Results' }));
+    const focusOwner = within(mobileNavigation).getByRole('button', { name: 'Results' });
     focusOwner.focus();
 
     act(() => {
