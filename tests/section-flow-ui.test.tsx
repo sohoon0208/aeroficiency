@@ -100,21 +100,6 @@ describe('V3 Section Flow Lab', () => {
     expect(rendered.container.querySelector('.cp-upper')!.getAttribute('points')).not.toBe(firstPressure);
   });
 
-  it('uses a lightweight flow field only while the AoA control is moving', () => {
-    const { state, design, analysis } = fixture();
-    const rendered = render(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={() => undefined} interactive />);
-    const previewGraphic = rendered.container.querySelector<SVGElement>('svg[data-reference-frame="wind"]')!;
-    expect(previewGraphic.dataset.panelCount).toBe('40');
-    expect(previewGraphic.dataset.streamlineCount).toBe('3');
-    expect(rendered.container.querySelectorAll('.section-streamline')).toHaveLength(3);
-
-    rendered.rerender(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={() => undefined} />);
-    const finalGraphic = rendered.container.querySelector<SVGElement>('svg[data-reference-frame="wind"]')!;
-    expect(finalGraphic.dataset.panelCount).toBe('120');
-    expect(finalGraphic.dataset.streamlineCount).toBe('17');
-    expect(rendered.container.querySelectorAll('.section-streamline')).toHaveLength(17);
-  });
-
   it('fails closed without a current converged analysis', () => {
     const { state, design } = fixture();
     render(<SectionFlowLab design={design} analysis={null} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={() => undefined} />);

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AngleSweepScrubber } from '@/components/flow/AngleSweepExplorer';
 import { analysisAtSweepPoint, sweepPointAtAngle, sweepPresentationAtAngle } from '@/lib/domain/angleSweep';
@@ -9,10 +9,7 @@ import { createDefaultProject } from '@/lib/domain/defaults';
 import { buildAnalysisSnapshot } from '@/lib/solver/analysis';
 import { deriveSectionCondition } from '@/lib/visualization/sectionFlow';
 
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-});
+afterEach(() => cleanup());
 
 function fixture() {
   const state = createDefaultProject();
@@ -84,13 +81,11 @@ describe('interactive angle-of-attack sweep', () => {
     expect(presentation.point.alphaDeg).toBe(1.5);
   });
 
-  it('updates the control immediately while coalescing expensive preview work and committing the exact final AoA', () => {
-    vi.useFakeTimers();
+  it('renders the configured range and emits the exact selected AoA', () => {
     const { analysis } = fixture();
     const point = sweepPointAtAngle(analysis, null)!;
     const onSelect = vi.fn();
-    const onInteractionChange = vi.fn();
-    render(<AngleSweepScrubber analysis={analysis} point={point} onSelect={onSelect} onInteractionChange={onInteractionChange} />);
+    render(<AngleSweepScrubber analysis={analysis} point={point} onSelect={onSelect} />);
     const slider = screen.getByRole('slider', { name: 'Selected angle of attack' });
     expect(slider).toHaveAttribute('min', '-4');
     expect(slider).toHaveAttribute('max', '10');
@@ -100,20 +95,7 @@ describe('interactive angle-of-attack sweep', () => {
     expect(screen.queryByText(/0.01° display control interpolates adjacent solved wing states/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Official candidate checks remain tied/)).not.toBeInTheDocument();
     fireEvent.input(slider, { target: { value: '-2.47' } });
+    expect(onSelect).toHaveBeenCalledWith(-2.47);
     expect(slider).toHaveAttribute('aria-valuetext', '-2.47 degrees angle of attack, interpolated display');
-    expect(onInteractionChange).not.toHaveBeenCalled();
-    expect(onSelect).not.toHaveBeenCalled();
-
-    fireEvent.input(slider, { target: { value: '-2.46' } });
-    act(() => vi.advanceTimersByTime(50));
-    expect(onInteractionChange).toHaveBeenCalledWith(true);
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenLastCalledWith(-2.46);
-
-    fireEvent.input(slider, { target: { value: '-2.41' } });
-    fireEvent.pointerUp(slider);
-    expect(onSelect).toHaveBeenCalledTimes(2);
-    expect(onSelect).toHaveBeenLastCalledWith(-2.41);
-    expect(onInteractionChange).toHaveBeenLastCalledWith(false);
   });
 });

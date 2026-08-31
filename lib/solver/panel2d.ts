@@ -52,12 +52,6 @@ export interface SectionVelocityVector {
   velocity: Point2;
 }
 
-export interface StreamlineTraceOptions {
-  maxSteps?: number;
-  maxStep?: number;
-  minStep?: number;
-}
-
 const TWO_PI = 2 * Math.PI;
 
 function signedArea(points: readonly Point2[]) {
@@ -375,20 +369,14 @@ function sectionRk4(point: Point2, step: number, solution: SectionPotentialFlowS
   };
 }
 
-export function traceSectionStreamlines(
-  solution: SectionPotentialFlowSolution,
-  lineCount = 17,
-  { maxSteps = 420, maxStep = 0.012, minStep = 0.0004 }: StreamlineTraceOptions = {},
-): SectionStreamline[] {
+export function traceSectionStreamlines(solution: SectionPotentialFlowSolution, lineCount = 17): SectionStreamline[] {
   if (!Number.isInteger(lineCount) || lineCount < 3 || lineCount > 41) throw new Error('Section streamline count must be an integer from 3 to 41.');
-  if (!Number.isInteger(maxSteps) || maxSteps < 80 || maxSteps > 800) throw new Error('Section streamline step limit must be an integer from 80 to 800.');
-  if (!(maxStep > 0) || !(minStep > 0) || minStep > maxStep) throw new Error('Section streamline integration steps must be positive with minStep no greater than maxStep.');
   const windSeeds = Array.from({ length: lineCount }, (_, index) => ({ x: -0.55, z: -0.52 + 1.04 * index / (lineCount - 1) }));
   return windSeeds.map((windSeed, index) => {
     const points: Point2[] = [];
     let point = windPointToSectionAxes(windSeed, solution.incidenceDeg);
     let termination: SectionStreamline['termination'] = 'step_limit';
-    for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
+    for (let stepIndex = 0; stepIndex < 420; stepIndex += 1) {
       if (!Number.isFinite(point.x) || !Number.isFinite(point.z)) { termination = 'non_finite'; break; }
       const windPoint = sectionPointToWindAxes(point, solution.incidenceDeg);
       if (windPoint.x < -0.58 || windPoint.x > 1.72 || windPoint.z < -0.68 || windPoint.z > 0.68) { termination = 'bounds'; break; }
@@ -396,7 +384,7 @@ export function traceSectionStreamlines(
       if (pointInsideContour(point, solution.panels) || clearance < 6e-4) { termination = 'solid'; break; }
       points.push(windPoint);
       /** The step shrinks near the contour so an integration segment cannot tunnel through a thin section. */
-      const integrationStep = Math.min(maxStep, Math.max(minStep, clearance * 0.32));
+      const integrationStep = Math.min(0.012, Math.max(0.0004, clearance * 0.32));
       const next = sectionRk4(point, integrationStep, solution);
       if (!next) { termination = 'low_speed'; break; }
       point = next;
