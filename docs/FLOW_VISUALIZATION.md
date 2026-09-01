@@ -4,7 +4,7 @@ Aeroficiency keeps its flow-specific evidence in the linked 2D Section Flow Lab.
 
 ## Validated 2D Section Flow Lab
 
-The lab is an independent constant-source/global-vortex Hess–Smith panel diagnostic for the exact V4 local section at the selected right-semispan station. The section may be NACA, imported coordinates, or a camber/thickness blend between stations. It uses 40, 80, 120, or 160 straight panels, enforces no penetration at panel collocation points, and applies a trailing-edge Kutta condition. The displayed pressure coefficient is
+The lab is an independent constant-source/global-vortex Hess–Smith panel diagnostic for the exact V4 local section at the selected right-semispan station. The section may be NACA, imported coordinates, or a camber/thickness blend between stations. The user-selected final resolution is 40, 80, 120, or 160 straight panels. During an AoA or linked-station drag, the lab temporarily uses 40 panels and coalesces station calculations to the animation frame at up to 30 updates per second; releasing the control commits the final station selection once and restores the selected resolution. Every solve enforces no penetration at panel collocation points and applies a trailing-edge Kutta condition. The displayed pressure coefficient is
 
 ```text
 Cp = 1 - (V_tangent / V_infinity)^2
@@ -18,7 +18,7 @@ The section condition is derived from the selected AoA presentation state rather
 alpha_local = alpha_display + theta_geometric + theta_elastic - alpha_induced
 ```
 
-Here `alpha_induced` is positive for downwash. The scrubber exposes a 0.01-degree presentation grid. Exact configured sweep points retain their independently solved VLM/polar/torsion state; intermediate display positions linearly interpolate only between adjacent converged points. Failed gaps are never interpolated. At every displayed position, the local condition is derived again and the Hess–Smith surface pressure and streamline field are recalculated at that displayed incidence. This presentation does not add an immutable wing solve or change official trim-based checks.
+Here `alpha_induced` is positive for downwash. The scrubber exposes a 0.01-degree presentation grid. Exact configured sweep points retain their independently solved VLM/polar/torsion state; intermediate display positions linearly interpolate only between adjacent converged points. Failed gaps are never interpolated. At every displayed position, the local condition is derived again and the Hess–Smith surface pressure and streamline field are recalculated at that displayed incidence. Interaction uses the temporary 40-panel preview described above; the selected final resolution resumes on release. This presentation does not add an immutable wing solve or change official trim-based checks.
 
 Local chord and Reynolds number are shown as context. The selected V5 SectionPolar evaluation is shown separately for `Cl`, `Cd`, `Cm`, provenance, and range state. Reynolds number does not modify the inviscid Hess–Smith equations; it only affects the separate SectionPolar evidence. Changing AoA display position, station, or panel count changes only this presentation and diagnostic; it never mutates the wing, reruns the coupled solver, or changes constraints.
 
@@ -32,4 +32,6 @@ Automated checks cover the panel solver against symmetric NACA 0012 at zero inci
 
 ## Scientific boundary
 
-The 2D diagnostic does not model a viscous boundary layer, transition, separation, stall, turbulence, wake roll-up, compressibility, unsteady flow, propulsive flow, fuselage interference, or ground effect. Its panel forces do not feed the wing solver. V5 profile drag comes from the explicitly labelled SectionPolar model, not from the inviscid panel lab; combined drag remains wing-only rather than total-aircraft drag. The 3D viewport is a geometry/load/structure view, not a CFD result. For the complete design-model contract, see [Model assumptions](MODEL_ASSUMPTIONS.md). For executed checks, see [Validation](VALIDATION.md).
+The 2D diagnostic does not model a viscous boundary layer, transition, separation, stall, turbulence, wake roll-up, compressibility, unsteady flow, propulsive flow, fuselage interference, or ground effect. Its panel forces do not feed the wing solver. V5 profile drag comes from the explicitly labelled SectionPolar model, not from the inviscid panel lab; combined drag remains wing-only rather than total-aircraft drag.
+
+The 3D viewport is a geometry/load/structure view, not a CFD result. A damped, view-only transform rotates the visible wing to the selected solved or interpolated display AoA while leaving immutable body-axis solver values unchanged. The horizontal `U∞` wind-axis indicator and brighter layered selected-station outline are orientation and selection aids, not simulated flow. For the complete design-model contract, see [Model assumptions](MODEL_ASSUMPTIONS.md). For executed checks, see [Validation](VALIDATION.md).

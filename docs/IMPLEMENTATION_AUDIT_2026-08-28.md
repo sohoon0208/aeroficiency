@@ -1,6 +1,6 @@
 # Implementation audit — 2026-08-28
 
-> Historical V1–V3 audit. It records the state verified on 2026-08-28, including the former protected-Baseline/eight-tool contract, and is intentionally not rewritten as if later behavior existed then. The current implementation uses an editable Baseline and ten tools. For current implementation and test evidence, use [Validation](VALIDATION.md), [WebMCP tools](WEBMCP_TOOLS.md), and [Release checklist](RELEASE_CHECKLIST.md).
+> Historical V1–V3 audit. It records the state verified on 2026-08-28, including the former protected-Baseline/eight-tool contract, and is intentionally not rewritten as if later behavior existed then. The current implementation uses an editable Baseline and ten tools. For current implementation and test evidence, use [Validation](VALIDATION.md), [WebMCP tools](WEBMCP_TOOLS.md), and the project [README](../README.md).
 
 ## Decision
 

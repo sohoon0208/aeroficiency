@@ -56,8 +56,8 @@ describe('visible Site Tool mutation causality', () => {
       useProjectStore.getState().selectDesign(baseline.designId);
     });
     const mobileNavigation = screen.getByRole('navigation', { name: 'Workspace views' });
-    fireEvent.click(within(mobileNavigation).getByRole('button', { name: 'Results & Compare' }));
-    const focusOwner = within(mobileNavigation).getByRole('button', { name: 'Results & Compare' });
+    fireEvent.click(within(mobileNavigation).getByRole('button', { name: 'Summary' }));
+    const focusOwner = within(mobileNavigation).getByRole('button', { name: 'Summary' });
     focusOwner.focus();
 
     act(() => {
@@ -81,6 +81,29 @@ describe('visible Site Tool mutation causality', () => {
     const changedField = skinGauge.closest('label');
     expect(changedField).toHaveClass('field-changed');
     expect(within(changedField as HTMLElement).getByText('Agent')).toBeVisible();
+  });
+
+  it('uses Summary as a two-way results drawer toggle', () => {
+    render(<AeroficiencyWorkspace />);
+    const mobileNavigation = screen.getByRole('navigation', { name: 'Workspace views' });
+    const summary = within(mobileNavigation).getByRole('button', { name: 'Summary' });
+    const visualizationControls = screen.getByRole('group', { name: 'Visualization controls' });
+    const visualizationTabs = within(visualizationControls).getByRole('tablist', { name: 'Visualization mode' });
+    const inlineSummary = within(visualizationControls).getByRole('button', { name: 'Summary' });
+    expect(within(visualizationTabs).getByRole('tab', { name: 'Structure' }).compareDocumentPosition(inlineSummary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const workspace = document.querySelector('.workspace');
+    expect(workspace).not.toHaveClass('summary-open');
+
+    expect(summary).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(summary);
+    expect(summary).toHaveAttribute('aria-expanded', 'true');
+    expect(summary).toHaveAttribute('aria-pressed', 'true');
+    expect(workspace).toHaveClass('summary-open');
+
+    fireEvent.click(summary);
+    expect(summary).toHaveAttribute('aria-expanded', 'false');
+    expect(summary).toHaveAttribute('aria-pressed', 'false');
+    expect(workspace).not.toHaveClass('summary-open');
   });
 
   it('moves lost editor focus to changed evidence and preserves it across same-tab remounts', async () => {

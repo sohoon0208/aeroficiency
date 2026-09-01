@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { MODEL_SCOPE_SECTIONS, MODEL_VALIDITY_STATUS } from '@/lib/domain/modelValidity';
-import { CANONICAL_AGENT_TASK } from '@/lib/presentation/copy';
 import type { ImmutableResultState } from '@/lib/presentation/status';
 import type { SiteToolsState } from '@/store/projectStore';
 
@@ -56,19 +55,9 @@ interface ChallengeHeaderProps {
 
 export function ChallengeHeader({ analysisState, activeDesignLabel, activeDesignRevision, candidateCount, toolCount, siteTools, running, onRun, onCancel, onReset }: ChallengeHeaderProps) {
   const [scopeOpen, setScopeOpen] = useState(false);
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const scopeDialogRef = useRef<HTMLElement>(null);
   const closeScope = useCallback(() => setScopeOpen(false), []);
   useModalFocus(scopeOpen, closeScope, scopeDialogRef);
-
-  const copyTask = async () => {
-    try {
-      await navigator.clipboard.writeText(CANONICAL_AGENT_TASK);
-      setCopyState('copied');
-    } catch {
-      setCopyState('failed');
-    }
-  };
 
   const toolCopy = siteTools === 'ready'
     ? `${toolCount} Site Tools ready`
@@ -105,15 +94,12 @@ export function ChallengeHeader({ analysisState, activeDesignLabel, activeDesign
 
         <div className="challenge-actions">
           <span className={`tools-status ${siteTools}`}><i />{toolCopy}</span>
-          <button className="button compact" type="button" onClick={copyTask}>{copyState === 'copied' ? 'Agent task copied' : 'Copy agent task'}</button>
           <button className="button compact" type="button" onClick={() => setScopeOpen(true)}>Model scope</button>
           <button className="button compact reset-reference" type="button" onClick={onReset}>Reset reference case</button>
           {running && <button className="button compact cancel-run" type="button" onClick={onCancel}>Cancel</button>}
           <button className="button primary compact" type="button" disabled={running} onClick={onRun}>{running ? 'Solving…' : 'Run analysis'}</button>
         </div>
       </header>
-
-      <span className="sr-only" role="status" aria-live="polite">{copyState === 'copied' ? 'Canonical agent task copied to clipboard.' : copyState === 'failed' ? 'Could not copy the agent task. Clipboard access is unavailable.' : ''}</span>
 
       {scopeOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeScope(); }}>

@@ -106,7 +106,7 @@ The polar residual is solved with Newton updates, line search, and a determinist
 
 The official comparison snapshot remains the target-lift trim. Separately, each configured sweep angle reruns the full fixed-angle aerodynamic solve, section-polar closure, structural response, and torsional fixed-point coupling. The stored points therefore have their own circulation, local effective incidence, Reynolds/polar evaluation, induced/profile drag, deformation, elastic twist, stress, and convergence record; they are not interpolated or scaled from the trim result.
 
-The default sweep is −4° to +10° in 0.5° increments. The human or `configure_angle_sweep` Site Tool may choose any valid range within −8° to +12°. The visible scrubber selects only a precomputed immutable point, so dragging it does not launch hidden analyses or change the official configured checks. Because the generated polar and the 2D panel diagnostic are attached-flow models, the upper end of a wide sweep is not a stall prediction.
+The default sweep is −4° to +10° in 0.5° increments. The human or `configure_angle_sweep` Site Tool may choose any valid range within −8° to +12°. The visible 0.01° scrubber selects an exact stored solve at configured sweep angles and otherwise constructs a presentation state by linearly interpolating adjacent converged points. It never interpolates across an unavailable or non-converged gap. Dragging does not launch hidden analyses, create another immutable solve, or change the official configured checks. Because the generated polar and the 2D panel diagnostic are attached-flow models, the upper end of a wide sweep is not a stall prediction.
 
 Wake-induced drag comes from the wake-only induced velocity. Profile drag is integrated from local section `Cd`:
 
@@ -134,7 +134,9 @@ Torsional deformation feeds back into the aerodynamic incidence through an under
 
 ## Analysis-bound diagnostics
 
-The 2D Section Flow Lab solves an independent Hess–Smith source/global-vortex potential-flow problem for the exact selected local section. At a selected sweep point its incidence is the stored wing AoA plus local geometric and elastic twist minus the signed induced-flow angle. It reports `Cp`, force/moment coefficients, Kutta/source residuals, streamlines, and vectors. The 3D viewport is a committed geometry/load/structure visualization; it is not a CFD field solver.
+The 2D Section Flow Lab solves an independent Hess–Smith source/global-vortex potential-flow problem for the exact selected local section. At a selected solved or interpolated presentation point, its incidence is the displayed wing AoA plus local geometric and elastic twist minus the signed induced-flow angle. It reports `Cp`, force/moment coefficients, Kutta/source residuals, streamlines, and vectors. During an AoA or linked-station drag, it temporarily uses a 40-panel live preview and restores the selected 40/80/120/160-panel resolution on release; the committed design and analysis are not changed.
+
+The 3D viewport is a geometry/load/structure visualization, not a CFD field solver. Its engineering values come from the immutable analysis evidence, while a view-only damped transform rotates the visible wing to the selected display AoA in wind axes. The `U∞` arrow and selected-station outline are presentation aids. They do not rotate or rewrite the stored body-axis solver values.
 
 The Efficiency mode reads immutable strip/station data and shows local Reynolds number, sectional lift, profile drag, polar range state, induced/profile/combined drag, and estimated wing L/D. Changing a visualization selection does not mutate the design or rerun the coupled solver.
 

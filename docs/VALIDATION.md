@@ -9,7 +9,7 @@ This record separates local V5 release-candidate evidence from public challenge 
 - App / solver / tool schema: `0.6.0` / `aeroficiency-0.6.0` / `aeroficiency-webmcp-1.5`
 - Build identity: injected by `NEXT_PUBLIC_AEROFICIENCY_COMMIT`; local fallback `local`
 
-No repository publication, hosting, recording, upload, or submission is included in this evidence.
+No public repository publication, public hosting, recording, upload, or submission is included in this evidence.
 
 ## Local release gate
 
@@ -28,7 +28,7 @@ npm audit --audit-level=high
 | Fresh `npm ci` in an isolated `/tmp` copy | Pass; 629 packages installed, 630 audited |
 | ESLint | Pass with zero warnings |
 | TypeScript | Pass |
-| Vitest | 30 files / 181 tests pass |
+| Vitest | 30 files / 190 tests pass |
 | Production license inventory | 119 dependency entries / 58 distinct texts verified |
 | `npm audit --audit-level=high` | Pass; 0 vulnerabilities |
 | Vinext production build | Pass; documented chunk-size and route-classification notices only |
@@ -113,10 +113,12 @@ The wake-drag delta lies inside the UI’s ±0.05% neutral reporting band while 
 - [x] The analyzed multi-section wing updates the 3D loft, local section label, mass, drag, deformation, and polar-linked evidence.
 - [x] Geometry, Aero loads, 2D Section, Efficiency, and Structure modes all render from a current immutable analysis.
 - [x] A configured AoA sweep reruns the coupled solver at every point; its 0.01° presentation scrubber interpolates adjacent converged states, updates signed 3D/load/structure evidence and seven Efficiency plots, and recalculates local 2D pressure/streamlines without mutating the official trim result.
+- [x] AoA and Linked 3D station drags use a live 40-panel section preview, coalesce expensive station calculations, commit the linked global station once on release, and then restore the selected 40/80/120/160-panel resolution.
+- [x] The 2D wind-axis view keeps `U∞` horizontal while the airfoil, streamlines, and `Cp` update with local incidence; the 3D viewport smoothly applies a view-only AoA attitude and keeps its wind indicator and layered selected-station outline aligned without changing solver values.
 - [x] Thin, thick, cambered, high-lift, glider, and supercritical section families pass the finite/monotonic/positive-drag and Hess–Smith Kutta/flux residual matrix.
 - [x] Efficiency keeps drag summaries and local facts at readable heights and scrolls its plots deliberately.
 - [x] Planform/Airfoils/Structure/Case and Overview/Checks/Compare/Log tabs fit their containers.
-- [x] Tablet results drawer keeps its current-result pill, long analysis ID, and Close control inside the panel.
+- [x] At tablet widths, the adjacent Summary toggle smoothly gives the result panel its own column and shrinks the engineering workspace instead of overlaying it; the current-result pill, long analysis ID, and `Close Summary` control remain inside the panel.
 - [x] 1440×900, 1280×720, 1024×768, 390×844, and 640×360 layouts have no document-level horizontal overflow.
 - [x] At 390 px, all five visualization tabs remain visible; V4/V5 diagnostic panels scroll vertically without horizontal clipping.
 - [x] A fresh post-fix reload reports no console errors.

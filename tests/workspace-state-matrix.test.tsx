@@ -343,9 +343,36 @@ describe('rendered presentation-state truth matrix', () => {
     const evidence = document.getElementById('selected-station-evidence');
     if (!evidence) throw new Error('Missing selected-station evidence row.');
     const scrubber = within(evidence).getByRole('slider', { name: 'Selected span station' });
+    expect(scrubber).toHaveAttribute('min', '0');
+    expect(scrubber).toHaveAttribute('max', '1');
+    expect(scrubber).toHaveAttribute('step', '0.001');
+    expect(evidence.querySelector('.station-inline-scrubber')).toBeInTheDocument();
+    expect(evidence.querySelector('.station-metrics')).toBeInTheDocument();
+    expect(evidence.querySelector('.station-inline-scrubber')?.nextElementSibling).toBe(evidence.querySelector('.station-metrics'));
     fireEvent.change(scrubber, { target: { value: '0.322' } });
     expect(within(evidence).getByText('η 0.322')).toBeVisible();
     expect(useProjectStore.getState().project.selectedEta).toBe(0.322);
+  });
+
+  it('keeps station metrics independent from the scrubber while reaching the exact tip', () => {
+    loadScenario(matrixFixtures().currentBaseline);
+    render(<AeroficiencyWorkspace />);
+    const tablist = screen.getByRole('tablist', { name: 'Visualization mode' });
+    fireEvent.click(within(tablist).getByRole('tab', { name: 'Aero loads' }));
+    const evidence = document.getElementById('selected-station-evidence');
+    if (!evidence) throw new Error('Missing selected-station evidence row.');
+    const scrubber = within(evidence).getByRole('slider', { name: 'Selected span station' });
+    const metrics = evidence.querySelector('.station-metrics');
+    if (!metrics) throw new Error('Missing station metric row.');
+
+    for (const eta of [0.99, 0.995, 0.999, 1]) {
+      fireEvent.change(scrubber, { target: { value: String(eta) } });
+      expect(useProjectStore.getState().project.selectedEta).toBe(eta);
+      expect(evidence).toHaveTextContent(`η ${eta.toFixed(3)}`);
+    }
+
+    expect(metrics).toHaveTextContent('y 6.00 m');
+    expect(metrics).toHaveTextContent('lift 0 N/m');
   });
 
   it('withholds full-wing evidence when the retained engineering analysis is stale', () => {

@@ -4,7 +4,6 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChallengeHeader } from '@/components/workspace/ChallengeHeader';
-import { CANONICAL_AGENT_TASK } from '@/lib/presentation/copy';
 import { immutableResultState } from '@/lib/presentation/status';
 
 afterEach(() => {
@@ -43,14 +42,11 @@ describe('challenge first-screen controls', () => {
     expect(screen.getByRole('button', { name: 'Reset reference case' })).toBeEnabled();
   });
 
-  it('copies the exact canonical task with an accessible confirmation and no extra state action', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  it('omits the optional agent-task clipboard control', () => {
     renderHeader();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy agent task' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(CANONICAL_AGENT_TASK));
-    expect(screen.getByRole('button', { name: 'Agent task copied' })).toBeVisible();
-    expect(screen.getByText('Canonical agent task copied to clipboard.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy agent task' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Model scope' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Reset reference case' })).toBeVisible();
   });
 
   it('opens a keyboard-accessible complete model-scope dialog and restores trigger focus on Escape', async () => {

@@ -79,7 +79,7 @@ The checked-in suite covers:
 - visible background-target success commits and tool-write editor/mobile exposure, preserving persistent focus and restoring replaced editor-input focus to changed evidence;
 - compact current, stale, replacement, and non-converged analysis summaries below the frozen 1,500-byte UTF-8 success ceiling while full shared bounds remain enforced and disclosed elsewhere;
 - a rendered nine-state matrix covering fresh/current baseline, fresh/failing/passing/stale candidate, non-converged with retained evidence, aborted with retained evidence, and conflict;
-- first-screen copy, exact clipboard prompt, Model Scope dialog, Planform/Airfoils/Structure/Case and Overview/Checks/Compare/Log tabs, five linked engineering views, the global AoA scrubber and seven Efficiency plots, five accessible check states, focus trap/restore, keyboard tabs, and no-focus-steal behavior.
+- current first-screen objective, editable-Baseline and candidate-readiness states, Model Scope dialog, Planform/Airfoils/Structure/Case editors, five linked engineering views, the adjacent two-way Summary toggle and Overview/Checks/Compare/Log sections, the fine AoA presentation scrubber, responsive 2D live preview, seven Efficiency plots, five accessible check states, focus trap/restore, keyboard controls, and no-focus-steal behavior.
 
 The automated local suite exercises all ten tool definitions and the full Baseline → first proposal → correction → final root focus → exact comparison flow, including Baseline editing, role replacement, and sweep configuration. Fresh discovery and repeated reliability in the final supported browser/model environment remain external release gates.
 
@@ -99,4 +99,4 @@ invariant failures:
 notes:
 ```
 
-No private account, eligibility, travel, credential, or local-path data belongs in eval evidence.
+No private account, eligibility, credential, or local-path data belongs in eval evidence.

@@ -85,7 +85,8 @@ describe('interactive angle-of-attack sweep', () => {
     const { analysis } = fixture();
     const point = sweepPointAtAngle(analysis, null)!;
     const onSelect = vi.fn();
-    render(<AngleSweepScrubber analysis={analysis} point={point} onSelect={onSelect} />);
+    const onInteractionChange = vi.fn();
+    render(<AngleSweepScrubber analysis={analysis} point={point} onSelect={onSelect} onInteractionChange={onInteractionChange} />);
     const slider = screen.getByRole('slider', { name: 'Selected angle of attack' });
     expect(slider).toHaveAttribute('min', '-4');
     expect(slider).toHaveAttribute('max', '10');
@@ -94,8 +95,14 @@ describe('interactive angle-of-attack sweep', () => {
     expect(screen.getByText('AOA SWEEP')).toBeVisible();
     expect(screen.queryByText(/0.01° display control interpolates adjacent solved wing states/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Official candidate checks remain tied/)).not.toBeInTheDocument();
+    fireEvent.pointerDown(slider);
+    expect(onInteractionChange).toHaveBeenLastCalledWith(true);
     fireEvent.input(slider, { target: { value: '-2.47' } });
+    fireEvent.change(slider, { target: { value: '-2.47' } });
     expect(onSelect).toHaveBeenCalledWith(-2.47);
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(slider).toHaveAttribute('aria-valuetext', '-2.47 degrees angle of attack, interpolated display');
+    fireEvent.pointerUp(slider);
+    expect(onInteractionChange).toHaveBeenLastCalledWith(false);
   });
 });

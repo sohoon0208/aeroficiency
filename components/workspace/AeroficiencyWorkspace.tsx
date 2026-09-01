@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { SpanwiseCharts } from '@/components/charts/SpanwiseCharts';
 import { AirfoilEditor, CaseEditor, GeometryEditor, StructureEditor } from '@/components/design/Editors';
 import { SectionFlowLab } from '@/components/flow/SectionFlowLab';
@@ -158,6 +158,7 @@ export function AeroficiencyWorkspace() {
   const [resetOpen, setResetOpen] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [sweepSelection, setSweepSelection] = useState<{ analysisId: string; alphaDeg: number } | null>(null);
+  const [sweepInteracting, setSweepInteracting] = useState(false);
   const resetDialogRef = useRef<HTMLElement>(null);
   const editorFocusRef = useRef<{ tab: EditorTab; ariaLabel: string } | null>(null);
 
@@ -173,11 +174,13 @@ export function AeroficiencyWorkspace() {
   const requestedSweepAlpha = sweepSelection && sweepSelection.analysisId === analysis?.analysisId
     ? sweepSelection.alphaDeg
     : analysis ? Number(analysis.angleSweep.trimAlphaDeg.toFixed(2)) : null;
-  const deferredSweepAlpha = useDeferredValue(requestedSweepAlpha);
-  const sweepPresentation = useMemo(() => analysis?.status === 'converged' && current ? sweepPresentationAtAngle(analysis, deferredSweepAlpha) : null, [analysis, current, deferredSweepAlpha]);
+  const sweepPresentation = useMemo(() => analysis?.status === 'converged' && current ? sweepPresentationAtAngle(analysis, requestedSweepAlpha) : null, [analysis, current, requestedSweepAlpha]);
   const selectedSweepPoint = sweepPresentation?.point ?? null;
   const visualAnalysis = analysis?.status === 'converged' && current
     ? sweepPresentation?.analysis ?? analysis
+    : null;
+  const visualAngleOfAttackDeg = analysis?.status === 'converged' && current
+    ? selectedSweepPoint?.alphaDeg ?? analysis.metrics.trimmedAlphaDeg
     : null;
   const metricAnalysis = analysis;
   const overviewAnalysis = visualAnalysis ?? metricAnalysis;
@@ -430,9 +433,9 @@ export function AeroficiencyWorkspace() {
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{liveMessage}</span>
       <ChallengeHeader analysisState={immutableState} activeDesignLabel={activeDesign.label} activeDesignRevision={activeDesign.revision} candidateCount={candidateCount} toolCount={AEROFICIENCY_TOOL_COUNT} siteTools={siteTools} running={runningGlobally} onRun={runAnalysis} onCancel={() => store().cancelAnalysis()} onReset={() => setResetOpen(true)} />
 
-      <nav className="mobile-nav" aria-label="Workspace views">{(['design', 'model', 'results'] as const).map((item) => <button key={item} id={item === 'results' ? 'results-nav-button' : undefined} type="button" aria-pressed={mobileView === item} aria-expanded={item === 'results' ? mobileView === 'results' : undefined} aria-controls={`${item}-workspace-panel`} className={`mobile-view-button view-${item} ${mobileView === item ? 'active' : ''}`} onClick={() => setMobileView(item)}>{item === 'results' ? 'Results & Compare' : item[0].toUpperCase() + item.slice(1)}</button>)}<span className={`mobile-tools ${siteTools}`} title={siteTools === 'ready' ? `${AEROFICIENCY_TOOL_COUNT} Site Tools ready` : 'Manual UI ready'}><i />{siteTools === 'ready' ? `${AEROFICIENCY_TOOL_COUNT} TOOLS` : 'MANUAL'}</span><button className="mobile-reset" type="button" aria-label="Reset reference case" onClick={() => setResetOpen(true)}>↺</button></nav>
+      <nav className="mobile-nav" aria-label="Workspace views">{(['design', 'model', 'results'] as const).map((item) => <button key={item} id={item === 'results' ? 'results-nav-button' : undefined} type="button" aria-pressed={mobileView === item} aria-expanded={item === 'results' ? mobileView === 'results' : undefined} aria-controls={`${item}-workspace-panel`} className={`mobile-view-button view-${item} ${mobileView === item ? 'active' : ''}`} onClick={() => item === 'results' ? setMobileView((current) => current === 'results' ? 'model' : 'results') : setMobileView(item)}>{item === 'results' ? 'Summary' : item[0].toUpperCase() + item.slice(1)}</button>)}<span className={`mobile-tools ${siteTools}`} title={siteTools === 'ready' ? `${AEROFICIENCY_TOOL_COUNT} Site Tools ready` : 'Manual UI ready'}><i />{siteTools === 'ready' ? `${AEROFICIENCY_TOOL_COUNT} TOOLS` : 'MANUAL'}</span><button className="mobile-reset" type="button" aria-label="Reset reference case" onClick={() => setResetOpen(true)}>↺</button></nav>
 
-      <section className="workspace" aria-busy={runningGlobally}>
+      <section className={`workspace ${mobileView === 'results' ? 'summary-open' : ''}`} aria-busy={runningGlobally}>
         {(presentation.message || standaloneCommandNotice || runAlert) && <div className="notification-stack">
           {presentation.message && <div className={`presentation-focus ${presentation.focusedPanel}`}><span><strong>{presentation.actor === 'agent' ? 'Agent focus applied' : 'Visible evidence focused'}</strong>{presentation.message}</span><button type="button" aria-label="Dismiss focus message" onClick={() => store().clearPresentationFocus()}>×</button></div>}
           {standaloneCommandNotice && <div className={`command-notice ${standaloneCommandNotice.kind === 'replay' ? 'replay' : standaloneCommandNotice.kind === 'success' ? 'success' : ''} ${standaloneCommandNotice.code === 'REVISION_CONFLICT' ? 'conflict' : ''}`} role={standaloneCommandNotice.kind === 'replay' || standaloneCommandNotice.kind === 'success' ? undefined : 'alert'}><span><strong>{commandNoticeHeading(standaloneCommandNotice)}</strong>Target {commandNoticeTarget}. {standaloneCommandNotice.message} {standaloneCommandNotice.safeNextAction}</span><button type="button" aria-label="Dismiss command notice" onClick={() => store().clearCommandNotice()}>×</button></div>}
@@ -463,10 +466,16 @@ export function AeroficiencyWorkspace() {
           <div className="stage-heading">
             <div><span className="eyebrow">ENGINEERING VIEWPORT</span><h2>{activeDesign.label} · {mode === 'section' ? 'analysis-linked section diagnostic' : mode === 'performance' ? 'Reynolds and drag evidence' : 'linked full-wing evidence'}</h2></div>
             <div className="mode-controls">
-              <div className="view-tabs" role="tablist" aria-label="Visualization mode">{VISUALIZATION_TABS.map(([key, label]) => <button key={key} id={`view-tab-${key}`} type="button" role="tab" tabIndex={mode === key ? 0 : -1} aria-selected={mode === key} aria-controls="model-view-panel" className={mode === key ? 'active' : ''} onClick={() => setMode(key)} onKeyDown={(event) => moveTabFocus(event, VISUALIZATION_TABS.map(([tab]) => tab), mode, setMode, 'view-tab')}>{label}</button>)}</div>
+              <div className="view-controls">
+                <div className="view-tabs" role="group" aria-label="Visualization controls">
+                  <div className="visualization-tabs" role="group" aria-label="Visualization controls row">
+                    <div className="visualization-tablist" role="tablist" aria-label="Visualization mode">{VISUALIZATION_TABS.map(([key, label]) => <button key={key} id={`view-tab-${key}`} type="button" role="tab" tabIndex={mode === key ? 0 : -1} aria-selected={mode === key} aria-controls="model-view-panel" className={mode === key ? 'active' : ''} onClick={() => setMode(key)} onKeyDown={(event) => moveTabFocus(event, VISUALIZATION_TABS.map(([tab]) => tab), mode, setMode, 'view-tab')}>{label}</button>)}</div>
+                    <button id="summary-nav-button" className={`summary-toggle ${mobileView === 'results' ? 'active' : ''}`} type="button" aria-pressed={mobileView === 'results'} aria-expanded={mobileView === 'results'} aria-controls="results-workspace-panel" onClick={() => setMobileView((current) => current === 'results' ? 'model' : 'results')}>Summary</button>
+                  </div>
+                </div>
+              </div>
               <div className="stage-actions">
                 <div className="tablet-stage-actions" aria-label="Workspace actions">
-                  <button id="tablet-results-nav-button" className={`tablet-results-button ${mobileView === 'results' ? 'active' : ''}`} type="button" aria-pressed={mobileView === 'results'} aria-expanded={mobileView === 'results'} aria-controls="results-workspace-panel" onClick={() => setMobileView('results')}>Results &amp; Compare</button>
                   <span className={`tablet-tools ${siteTools}`} title={siteTools === 'ready' ? `${AEROFICIENCY_TOOL_COUNT} Site Tools ready` : 'Manual UI ready'}><i />{siteTools === 'ready' ? `${AEROFICIENCY_TOOL_COUNT} TOOLS` : 'MANUAL'}</span>
                   <button className="tablet-reset" type="button" aria-label="Reset reference case" onClick={() => setResetOpen(true)}>↺</button>
                 </div>
@@ -476,19 +485,19 @@ export function AeroficiencyWorkspace() {
           </div>
           <div id="model-view-panel" role="tabpanel" aria-labelledby={`view-tab-${mode}`} className={`viewport-card ${mode === 'section' || mode === 'performance' ? 'section-mode' : ''} ${analysis && current && selectedSweepPoint ? 'sweep-active' : ''} ${presentation.focusedPanel === 'station' ? 'agent-focused' : ''}`}>
             <div className={`solver-strip ${runningForActive ? 'running' : immutableState.key}`}><span><i />{runningForActive ? 'SOLVER RUNNING' : immutableState.label}</span>{progressText && <span>{progressText}</span>}{metricAnalysis && <><span>Analysis {metricAnalysis.analysisId}</span><span>r{metricAnalysis.designRevision} · {metricAnalysis.fidelity}</span></>}</div>
-            {analysis && current && selectedSweepPoint && <AngleSweepScrubber key={`${analysis.analysisId}-${sweepPresentation?.source === 'snapped' ? `snap-${selectedSweepPoint.alphaDeg}` : 'smooth'}`} analysis={analysis} point={selectedSweepPoint} onSelect={(alphaDeg) => setSweepSelection({ analysisId: analysis.analysisId, alphaDeg })} />}
+            {analysis && current && selectedSweepPoint && <AngleSweepScrubber key={`${analysis.analysisId}-${sweepPresentation?.source === 'snapped' ? `snap-${selectedSweepPoint.alphaDeg}` : 'smooth'}`} analysis={analysis} point={selectedSweepPoint} onSelect={(alphaDeg) => setSweepSelection({ analysisId: analysis.analysisId, alphaDeg })} onInteractionChange={setSweepInteracting} />}
             {mode === 'section'
-              ? <SectionFlowLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} />
+              ? <SectionFlowLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} interactive={sweepInteracting} />
               : mode === 'performance'
                 ? <PerformanceLab design={activeDesign} analysis={visualAnalysis} flightCase={project.flightCase} selectedEta={selectedEta} onSelectEta={(eta) => store().selectEta(eta)} />
-              : <><WingViewport design={activeDesign} baseline={activeDesign.kind === 'candidate' ? baseline : null} analysis={visualAnalysis} mode={mode} deformed={effectiveDeformed} selectedEta={selectedEta} yieldLimit={project.constraints.minYieldMargin} />
-                <div id="selected-station-evidence" className="station-readout"><span>SELECTED STATION</span><strong>η {selectedEta.toFixed(3)}</strong><div className="station-inline-scrubber"><input type="range" min="0" max="1" step="0.001" value={selectedEta} onChange={(event) => store().selectEta(Number(event.target.value))} aria-label="Selected span station" aria-valuetext={`eta ${selectedEta.toFixed(3)}`} /></div><b>y {fmt(stationGeometry.yM, 2)} m</b>{mode === 'geometry' ? <><b>c {fmt(stationGeometry.chordM, 2)} m</b><b>twist {fmt(stationGeometry.twistDeg, 2)}°</b></> : mode === 'aero' && analysisStation ? <><b>lift {fmt(analysisStation.liftPerSpanNpm, 0)} N/m</b><b>elastic twist {fmt(analysisStation.elasticTwistDeg, 2)}°</b></> : mode === 'structure' && analysisStation ? <><b>w {fmt(analysisStation.deflectionM, 3)} m</b><b>yield ratio {analysisStation.yieldRatio === null ? '—' : fmt(analysisStation.yieldRatio, 2)}×</b></> : <b>Run a current analysis</b>}</div>
+              : <><WingViewport design={activeDesign} baseline={activeDesign.kind === 'candidate' ? baseline : null} analysis={visualAnalysis} mode={mode} deformed={effectiveDeformed} selectedEta={selectedEta} yieldLimit={project.constraints.minYieldMargin} angleOfAttackDeg={visualAngleOfAttackDeg} />
+                <div id="selected-station-evidence" className="station-readout"><span>SELECTED STATION</span><strong>η {selectedEta.toFixed(3)}</strong><div className="station-inline-scrubber"><input type="range" min="0" max="1" step="0.001" value={selectedEta} onChange={(event) => store().selectEta(Number(event.target.value))} aria-label="Selected span station" aria-valuetext={`eta ${selectedEta.toFixed(3)}`} /></div><div className="station-metrics"><b>y {fmt(stationGeometry.yM, 2)} m</b>{mode === 'geometry' ? <><b>c {fmt(stationGeometry.chordM, 2)} m</b><b>twist {fmt(stationGeometry.twistDeg, 2)}°</b></> : mode === 'aero' && analysisStation ? <><b>lift {fmt(analysisStation.liftPerSpanNpm, 0)} N/m</b><b>elastic twist {fmt(analysisStation.elasticTwistDeg, 2)}°</b></> : mode === 'structure' && analysisStation ? <><b>w {fmt(analysisStation.deflectionM, 3)} m</b><b>yield ratio {analysisStation.yieldRatio === null ? '—' : fmt(analysisStation.yieldRatio, 2)}×</b></> : <b>Run a current analysis</b>}</div></div>
                 <SpanwiseCharts mode={mode} design={activeDesign} analysis={visualAnalysis} selectedEta={selectedEta} onSelect={(eta) => store().selectEta(eta)} /></>}
           </div>
         </section>
 
         <aside id="results-workspace-panel" className={`side-panel results-panel mobile-${mobileView}`} aria-label="Analysis results">
-          <div className="panel-title"><div><span className="eyebrow">IMMUTABLE ANALYSIS RESULT</span><h2>{metricAnalysis ? `${activeDesign.label} · ${metricAnalysis.analysisId}` : `${activeDesign.label} · awaiting analysis`}</h2></div><span className={`result-pill ${immutableState.key}`}>{immutableState.label}</span><button className="tablet-results-close" type="button" onClick={() => { setMobileView('model'); window.requestAnimationFrame(() => document.getElementById(window.matchMedia('(min-width: 900px)').matches ? 'tablet-results-nav-button' : 'results-nav-button')?.focus()); }}>Close results</button></div>
+          <div className="panel-title"><div><span className="eyebrow">IMMUTABLE ANALYSIS RESULT</span><h2>{metricAnalysis ? `${activeDesign.label} · ${metricAnalysis.analysisId}` : `${activeDesign.label} · awaiting analysis`}</h2></div><span className={`result-pill ${immutableState.key}`}>{immutableState.label}</span><button className="tablet-results-close" type="button" onClick={() => { setMobileView('model'); window.requestAnimationFrame(() => document.getElementById(window.matchMedia('(min-width: 900px)').matches ? 'summary-nav-button' : 'results-nav-button')?.focus()); }}>Close Summary</button></div>
           <div className="results-tabs" role="tablist" aria-label="Result sections">{([['overview', 'Overview'], ['checks', 'Checks'], ['compare', 'Compare'], ['log', 'Log']] as const).map(([key, label]) => <button key={key} id={`result-tab-${key}`} type="button" role="tab" tabIndex={resultTab === key ? 0 : -1} aria-selected={resultTab === key} aria-controls={`result-panel-${key}`} className={resultTab === key ? 'active' : ''} onClick={() => setResultTab(key)} onKeyDown={(event) => moveTabFocus(event, ['overview', 'checks', 'compare', 'log'] as const, resultTab, setResultTab, 'result-tab')}>{label}</button>)}</div>
           <div id="result-panel-overview" role="tabpanel" aria-labelledby="result-tab-overview" className="result-tab-panel" hidden={resultTab !== 'overview'}><div className="metrics-grid">
             <MetricCell label="Modeled wing-box wall mass" value={fmt(overviewAnalysis?.metrics.structuralMassKg, 1)} unit="kg" detail={metricAnalysis ? `Analysis r${metricAnalysis.designRevision}` : 'Awaiting analysis'} />

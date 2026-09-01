@@ -37,7 +37,7 @@ describe('V3 Section Flow Lab', () => {
   it('renders linked streamlines, Cp, validation evidence, warnings, and accessible controls', () => {
     const { state, design, analysis } = fixture();
     const onSelectEta = vi.fn();
-    render(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={onSelectEta} />);
+    const rendered = render(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={onSelectEta} />);
     expect(screen.getByRole('heading', { name: /NACA 2412.*wing α/ })).toBeVisible();
     expect(screen.getByText(new RegExp(`Presentation derived from immutable analysis ${analysis.analysisId}`))).toBeVisible();
     expect(screen.getByRole('img', { name: /Wind-axis inviscid attached-flow streamlines/ })).toBeVisible();
@@ -49,10 +49,37 @@ describe('V3 Section Flow Lab', () => {
     expect(screen.getByText(/Kutta residual/)).toBeVisible();
     expect(screen.getByText(/Re · coupled polar input/)).toBeVisible();
     expect(screen.getByRole('combobox', { name: 'Section panel resolution' })).toHaveValue('120');
+    expect(rendered.container.querySelector('svg[data-reference-frame="wind"]')).toHaveAttribute('data-panel-count', '120');
+    expect(rendered.container.querySelector('svg[data-reference-frame="wind"]')).toHaveAttribute('data-live-preview', 'false');
     fireEvent.change(screen.getByRole('combobox', { name: 'Section panel resolution' }), { target: { value: '160' } });
     expect(screen.getByRole('combobox', { name: 'Section panel resolution' })).toHaveValue('160');
+    rendered.rerender(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={onSelectEta} interactive />);
+    expect(rendered.container.querySelector('svg[data-reference-frame="wind"]')).toHaveAttribute('data-panel-count', '40');
+    expect(rendered.container.querySelector('svg[data-reference-frame="wind"]')).toHaveAttribute('data-live-preview', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Live preview · 40 panels · selected resolution resumes on release');
+    rendered.rerender(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={onSelectEta} />);
+    expect(rendered.container.querySelector('svg[data-reference-frame="wind"]')).toHaveAttribute('data-panel-count', '160');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('slider', { name: /Linked 3D station/ }), { target: { value: '0.7' } });
     expect(onSelectEta).toHaveBeenCalledWith(0.7);
+  });
+
+  it('keeps linked station drags local and uses a lightweight preview until release', () => {
+    const { state, design, analysis } = fixture();
+    const onSelectEta = vi.fn();
+    const rendered = render(<SectionFlowLab design={design} analysis={analysis} flightCase={state.flightCase} selectedEta={0.5} onSelectEta={onSelectEta} />);
+    const slider = screen.getByRole('slider', { name: /Linked 3D station/ });
+
+    fireEvent.pointerDown(slider, { pointerId: 1 });
+    fireEvent.change(slider, { target: { value: '0.7' } });
+    expect(slider).toHaveValue('0.7');
+    expect(onSelectEta).not.toHaveBeenCalled();
+    expect(rendered.container.querySelector('svg[data-reference-frame="wind"]')).toHaveAttribute('data-panel-count', '40');
+
+    fireEvent.pointerUp(slider, { pointerId: 1 });
+    expect(onSelectEta).toHaveBeenCalledTimes(1);
+    expect(onSelectEta).toHaveBeenCalledWith(0.7);
+    expect(rendered.container.querySelector('svg[data-reference-frame="wind"]')).toHaveAttribute('data-panel-count', '120');
   });
 
   it('rotates the rendered airfoil when the selected angle of attack changes', () => {

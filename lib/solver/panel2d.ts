@@ -369,14 +369,15 @@ function sectionRk4(point: Point2, step: number, solution: SectionPotentialFlowS
   };
 }
 
-export function traceSectionStreamlines(solution: SectionPotentialFlowSolution, lineCount = 17): SectionStreamline[] {
+export function traceSectionStreamlines(solution: SectionPotentialFlowSolution, lineCount = 17, maxSteps = 420): SectionStreamline[] {
   if (!Number.isInteger(lineCount) || lineCount < 3 || lineCount > 41) throw new Error('Section streamline count must be an integer from 3 to 41.');
+  if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 420) throw new Error('Section streamline step count must be an integer from 1 to 420.');
   const windSeeds = Array.from({ length: lineCount }, (_, index) => ({ x: -0.55, z: -0.52 + 1.04 * index / (lineCount - 1) }));
   return windSeeds.map((windSeed, index) => {
     const points: Point2[] = [];
     let point = windPointToSectionAxes(windSeed, solution.incidenceDeg);
     let termination: SectionStreamline['termination'] = 'step_limit';
-    for (let stepIndex = 0; stepIndex < 420; stepIndex += 1) {
+    for (let stepIndex = 0; stepIndex < maxSteps; stepIndex += 1) {
       if (!Number.isFinite(point.x) || !Number.isFinite(point.z)) { termination = 'non_finite'; break; }
       const windPoint = sectionPointToWindAxes(point, solution.incidenceDeg);
       if (windPoint.x < -0.58 || windPoint.x > 1.72 || windPoint.z < -0.68 || windPoint.z > 0.68) { termination = 'bounds'; break; }

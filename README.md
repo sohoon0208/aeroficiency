@@ -21,7 +21,7 @@ The V4/V5 implementation is complete locally:
 - V4: two to six user-positioned airfoil stations; arbitrary supported NACA four-digit sections; a built-in Clark Y, Selig S, Selig/Giguère SG, and NASA SC(2) geometry catalogue; imported coordinate definitions; local camber/thickness interpolation; local zero-lift angle and quarter-chord moment; spanwise 3D loft; and local wing-box geometry.
 - V5: generated attached-flow section polars or bounded user-imported station/Reynolds tables, nonlinear section-polar lifting-line closure, local Reynolds number, profile drag, combined wing drag, estimated wing L/D, range diagnostics, and polar-linked torsional loading.
 - AoA exploration: a user-configurable −8° to +12° fixed-angle range in 0.5° or 1° increments; a full VLM/section-polar/torsion solve at every sampled angle; linked 3D, load, structure, efficiency, and 2D Section views; and immutable trim-versus-sweep separation.
-- UI: separate Planform/Airfoils/Structure/Case editors; five linked engineering views; an AoA scrubber; and Overview/Checks/Compare/Log result sections.
+- UI: separate Planform/Airfoils/Structure/Case editors; five linked engineering views; a fine AoA presentation scrubber; and a discoverable Summary toggle beside Structure for the Overview/Checks/Compare/Log result sections. On tablet layouts, opening Summary smoothly gives the result panel its own column and shrinks the engineering workspace instead of covering it.
 
 The implementation is release-ready locally. Public repository publication, a judge-accessible deployment, recording, and final submission remain explicit owner actions. No URL should be treated as final until its logged-out live-origin checks pass.
 
@@ -63,13 +63,13 @@ npm run release:check
 
 ## Deployment
 
-The production build targets a Cloudflare Worker through Vinext/Vite. A free Cloudflare Workers account is sufficient for this client-side challenge application; no database, object storage, paid service, application secret, or OpenAI API key is required.
+The checked-in ChatGPT Sites configuration and Vinext/Vite build produce the same worker-rendered application used by local production previews. ChatGPT Sites is the intended managed publishing path; direct Cloudflare Workers deployment remains available as an optional alternative. Neither path requires an application database, object storage, application secret, or OpenAI API key.
 
 ```bash
 # Local production-runtime preview
 npm run preview:cloudflare
 
-# Public deployment — run only after choosing the public account and hostname
+# Optional direct Cloudflare deployment — run only after choosing the public account and hostname
 npm run deploy:cloudflare
 ```
 
@@ -150,8 +150,8 @@ The hosting scaffold uses ChatGPT Sites with Vinext/Vite and a Cloudflare Worker
 - Full-wing cosine-spaced, one-row horseshoe lattice with nonlinear SectionPolar closure and target-lift trim.
 - Local Reynolds interpolation from generated or user-supplied polars; spanwise profile-drag integration.
 - Wake-induced drag plus profile drag gives a preliminary combined wing-drag estimate and wing L/D.
-- Each configured fixed-AoA point reruns the aerodynamic and torsional coupling. The 0.01° visual scrubber interpolates only between adjacent converged solves and recalculates the local 2D panel field at every displayed incidence; it does not fabricate an additional immutable solve or pretend to be CFD.
-- 3D geometry, aero-load, and structure views that read the committed analysis snapshot.
+- Each configured fixed-AoA point reruns the aerodynamic and torsional coupling. The 0.01° visual scrubber uses exact solved points or interpolates only between adjacent converged solves; it never interpolates through a failed gap. During a drag, the local 2D field uses a responsive 40-panel preview, then restores the selected 40/80/120/160-panel resolution on release. This does not fabricate an additional immutable solve or pretend to be CFD.
+- 3D geometry, aero-load, and structure views derive engineering values from the committed analysis. The visible wing attitude smoothly follows the selected solved or interpolated display AoA in wind axes, while the solver snapshot and body-axis values remain unchanged. A `U∞` indicator and layered selected-station outline make that presentation state explicit.
 - Independent linked Hess–Smith 2D section diagnostic with `Cp`, force/moment, and residual checks.
 - Closed thin-walled Aluminum 2024-T3 wing box; right-semispan bending/torsion and full-wing wall mass.
 - Two-way torsional coupling; bending deformation is postprocessed and does not feed back to aerodynamics.
@@ -174,7 +174,7 @@ The built-in polar is a transparent attached-flow estimate, not XFOIL or experim
 
 ## Challenge provenance and license
 
-Aeroficiency is a clean-start solo project created during the 2026 OpenAI WebMCP Challenge. The sanitized record is in [provenance](docs/PROVENANCE.md). Private eligibility, travel, credentials, correspondence, and planning attachments are outside the repository boundary.
+Aeroficiency is a clean-start solo project created during the 2026 OpenAI WebMCP Challenge. The sanitized record is in [provenance](docs/PROVENANCE.md). Private eligibility, credentials, correspondence, and planning attachments are outside the repository boundary.
 
 Prepared release materials:
 
@@ -182,7 +182,6 @@ Prepared release materials:
 - [Devpost field guide](docs/DEVPOST_FIELD_GUIDE.md)
 - [demo script](docs/DEMO_SCRIPT.md)
 - [deployment guide](docs/DEPLOYMENT.md)
-- [release checklist](docs/RELEASE_CHECKLIST.md)
 - [third-party notices](THIRD_PARTY_NOTICES.md)
 
 Aeroficiency is released under the [MIT License](LICENSE). Third-party packages and their terms are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

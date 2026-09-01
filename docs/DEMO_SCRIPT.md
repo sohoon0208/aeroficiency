@@ -31,7 +31,7 @@ Canonical task shown on screen:
 
 ### 0:34–0:52 — Baseline
 
-**Screen:** Copy and ask the exact canonical task from the header. Agent calls `get_design_state`, then `run_aeroelastic_analysis` for baseline standard fidelity. Show progress and current result.
+**Screen:** Enter the rehearsed canonical task in the supported WebMCP agent environment. The agent calls `get_design_state`, then `run_aeroelastic_analysis` for baseline standard fidelity. Show progress and current result.
 
 **Voice:** “The agent first reads revision one and runs the chosen Baseline. The worker resolves each local airfoil and Reynolds-aware section polar, trims to target lift, and converges torsional feedback.”
 
@@ -55,7 +55,7 @@ Canonical task shown on screen:
 
 ### 2:25–2:40 — Transparent model
 
-**Screen:** Open Airfoils to show root/tip stations, then Model Scope. Briefly drag the precomputed AoA scrubber and cycle Geometry, Aero loads, 2D Section, Efficiency, and Structure; return to warnings and activity.
+**Screen:** Open Airfoils to show root/tip stations, then Model Scope. Briefly drag the AoA presentation scrubber through solved and interpolated positions and cycle Geometry, Aero loads, 2D Section, Efficiency, and Structure. Show the 3D wind-axis attitude, linked station marker, responsive 2D preview, and Summary toggle before returning to warnings and activity.
 
 **Voice:** “User-positioned sections shape the loft, wing box, and local loading. Every sampled angle reruns the coupled model, and one scrubber links the committed 3D, efficiency, and 2D evidence. The 2D lab stays explicitly inviscid. Model Scope keeps every limit visible.”
 

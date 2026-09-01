@@ -2,7 +2,7 @@
 
 Aeroficiency is a clean-start solo project created during the 2026 OpenAI WebMCP Challenge period. No executable Aeroficiency implementation existed before the challenge work began.
 
-The intended repository boundary is the `aeroficiency/` application directory. Private planning notes, eligibility records, travel information, personal correspondence, and attachment files in the parent workspace are outside that boundary and must never be copied into a public release.
+The intended repository boundary is the `aeroficiency/` application directory. Private planning notes, eligibility records, personal correspondence, and attachment files in the parent workspace are outside that boundary and must never be copied into a public release.
 
 ## Authorship and generation
 
@@ -15,7 +15,7 @@ The intended repository boundary is the `aeroficiency/` application directory. P
 - Pre-existing application code: none.
 - License: MIT.
 
-A local Git repository is established only at `aeroficiency/`; the parent workspace and private records are outside its root and were excluded by staged-content and privacy scans. No remote is configured and nothing has been published. Publication, hosting, video recording, and submission occur only after the entrant explicitly authorizes them.
+A local Git repository is established only at `aeroficiency/`; the parent workspace and private records are outside its root and were excluded by staged-content and privacy scans. An `origin` remote now points to the entrant's private GitHub repository. No public repository, public deployment, recording, upload, or submission has been authorized. Those public actions occur only after the entrant explicitly authorizes them.
 
 ## Sanitized creation evidence
 
@@ -23,7 +23,7 @@ The first repository commit is `d0a03ceca95bee12797daa348d8e5c28534d3ace`, autho
 
 At the current local-candidate stage:
 
-- no Git remote is configured;
+- an `origin` Git remote is configured to a private GitHub repository;
 - no release tag exists;
 - no public repository, deployment, recording, or submission exists;
 - the public attribution name/email must still be explicitly approved before publication.

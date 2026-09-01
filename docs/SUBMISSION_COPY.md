@@ -55,4 +55,4 @@ React, TypeScript, Next.js compatibility via Vinext, Vite, Zustand, Three.js / R
 - Confirm the repository platform recognizes the root MIT license.
 - Confirm the video is public, audible, captioned, and strictly under 3:00.
 - Remove all `PENDING_*` tokens.
-- Do not include private eligibility or travel records.
+- Do not include private eligibility records.
