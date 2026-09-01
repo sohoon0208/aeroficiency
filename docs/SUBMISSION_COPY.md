@@ -6,7 +6,7 @@ This document is prepared for the final Devpost entry but is not submitted. The 
 
 - **Name:** Aeroficiency
 - **Tagline:** A visible, solver-backed wing co-design workspace where humans and agents share one revision-safe engineering model.
-- **Live application:** `PENDING_LIVE_HTTPS_URL`
+- **Live application:** `https://aeroficiency.larerraven.chatgpt.site`
 - **Public repository:** `PENDING_PUBLIC_REPOSITORY_URL`
 - **Demo video:** `PENDING_PUBLIC_YOUTUBE_URL`
 - **License:** MIT

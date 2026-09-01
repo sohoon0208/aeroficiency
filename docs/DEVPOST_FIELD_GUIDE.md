@@ -10,7 +10,7 @@ This is the owner handoff for the OpenAI WebMCP Challenge entry. Use the prepare
 | Tagline | Explainable wing trade studies for humans and agents, powered by one revision-safe engineering model. |
 | License | MIT |
 | Thumbnail | `submission/devpost-thumbnail.png` (3:2, below 5 MB) |
-| Live app | `PENDING_LIVE_HTTPS_URL` |
+| Live app | `https://aeroficiency.larerraven.chatgpt.site` |
 | Source repository | `PENDING_PUBLIC_REPOSITORY_URL` |
 | Demo video | `PENDING_PUBLIC_YOUTUBE_URL` |
 
