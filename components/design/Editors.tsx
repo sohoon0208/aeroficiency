@@ -3,7 +3,6 @@
 import { useId, useMemo, useState } from 'react';
 import type { Actor, AirfoilDefinition, AirfoilStation, DesignConstraints, DomainResult, FlightCase, PolarModel, WingDesign, WingGeometry, WingStructure } from '@/lib/domain/types';
 import type { AngleSweepPatch } from '@/lib/domain/commands';
-import { AIRFOIL_CATALOG, AIRFOIL_CATALOG_FAMILIES, airfoilCatalogDefinition, airfoilCatalogId } from '@/lib/domain/airfoilCatalog';
 import { MAX_AIRFOIL_STATIONS, MIN_AIRFOIL_STATION_SEPARATION } from '@/lib/domain/limits';
 import { canonicalAirfoil } from '@/lib/solver/airfoilSections';
 
@@ -111,15 +110,11 @@ function AirfoilStationEditor({
   const [error, setError] = useState('');
   const errorId = useId();
   const endpoint = index === 0 || index === count - 1;
-  const catalogId = airfoilCatalogId(station.airfoil);
-  const profileValue = station.airfoil.kind === 'NACA4' ? 'NACA4' : catalogId ?? 'CUSTOM';
-  const catalogEntry = catalogId ? AIRFOIL_CATALOG.find((entry) => entry.id === catalogId) ?? null : null;
+  const profileValue = station.airfoil.kind === 'NACA4' ? 'NACA4' : 'CUSTOM';
   const applyProfile = (value: string) => {
     setError('');
-    let airfoil: AirfoilDefinition | null = null;
-    if (value === 'NACA4') airfoil = { kind: 'NACA4', code: NACA_PATTERN.test(nacaDraft) ? nacaDraft : '2412' };
-    else if (value !== 'CUSTOM') airfoil = airfoilCatalogDefinition(value);
-    if (!airfoil) return;
+    if (value !== 'NACA4') return;
+    const airfoil: AirfoilDefinition = { kind: 'NACA4', code: NACA_PATTERN.test(nacaDraft) ? nacaDraft : '2412' };
     const result = onChange({ ...station, airfoil });
     if (!result.ok) setError(result.error.issues?.[0]?.reason ?? result.error.message);
   };
@@ -152,10 +147,10 @@ function AirfoilStationEditor({
     <article className="airfoil-station-card">
       <div className="station-card-heading"><div><span>{endpoint ? index === 0 ? 'ROOT' : 'TIP' : `STATION ${index + 1}`}</span><strong>{station.id}</strong></div><b>η {station.eta.toFixed(3)}</b>{!endpoint && <button type="button" disabled={!editable} onClick={onRemove} aria-label={`Remove airfoil station ${station.id}`}>Remove</button>}</div>
       <NumberInput label={`Station ${station.id} eta`} value={station.eta} unit="η" min={endpoint ? station.eta : minimumEta} max={endpoint ? station.eta : maximumEta} step={0.01} disabled={!editable || endpoint} onCommit={(eta) => onChange({ ...station, eta })} />
-      <label className="airfoil-library-field"><span>Airfoil family / profile</span><select aria-label={`Airfoil profile at eta ${station.eta.toFixed(3)}`} value={profileValue} disabled={!editable} onChange={(event) => applyProfile(event.target.value)}><option value="NACA4">NACA four-digit · custom code</option>{AIRFOIL_CATALOG_FAMILIES.map((family) => <optgroup key={family} label={family}>{AIRFOIL_CATALOG.filter((entry) => entry.family === family).map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}</optgroup>)}{station.airfoil.kind === 'COORDINATES' && !catalogId && <option value="CUSTOM">Custom imported contour</option>}</select><small>{catalogEntry?.description ?? (station.airfoil.kind === 'NACA4' ? 'Parametric four-digit NACA geometry.' : 'User-supplied coordinate geometry.')}</small></label>
+      <label className="airfoil-library-field"><span>Airfoil profile</span><select aria-label={`Airfoil profile at eta ${station.eta.toFixed(3)}`} value={profileValue} disabled={!editable} onChange={(event) => applyProfile(event.target.value)}><option value="NACA4">NACA four-digit · custom code</option>{station.airfoil.kind === 'COORDINATES' && <option value="CUSTOM">Custom imported contour</option>}</select><small>{station.airfoil.kind === 'NACA4' ? 'Parametric four-digit NACA geometry.' : 'User-supplied coordinate geometry.'}</small></label>
       {station.airfoil.kind === 'NACA4'
         ? <label className="naca-field"><span>NACA four-digit</span><input aria-label={`NACA code at eta ${station.eta.toFixed(3)}`} aria-describedby={error ? errorId : undefined} value={nacaDraft} maxLength={4} disabled={!editable} onChange={(event) => { setError(''); setNacaDraft(event.target.value.replace(/\D/g, '')); }} onBlur={commitNaca} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label>
-        : <div className="coordinate-summary"><span>{catalogId ? 'Built-in catalogue' : 'Imported contour'}</span><strong>{station.airfoil.name}</strong><small>{station.airfoil.points.length} source points{station.airfoil.source ? ` · ${station.airfoil.source}` : ''}</small><button type="button" disabled={!editable} onClick={() => { setNacaDraft('2412'); const result = onChange({ ...station, airfoil: { kind: 'NACA4', code: '2412' } }); if (!result.ok) setError(result.error.message); }}>Replace with NACA</button></div>}
+        : <div className="coordinate-summary"><span>Imported contour</span><strong>{station.airfoil.name}</strong><small>{station.airfoil.points.length} source points{station.airfoil.source ? ` · ${station.airfoil.source}` : ''}</small><button type="button" disabled={!editable} onClick={() => { setNacaDraft('2412'); const result = onChange({ ...station, airfoil: { kind: 'NACA4', code: '2412' } }); if (!result.ok) setError(result.error.message); }}>Replace with NACA</button></div>}
       <AirfoilPreview definition={station.airfoil} />
       {index < count - 1 && <label className="station-blend"><span>Interpolation to next station</span><select aria-label={`Blend after ${station.id}`} value={station.blendToNext} disabled={!editable} onChange={(event) => onChange({ ...station, blendToNext: event.target.value as AirfoilStation['blendToNext'] })}><option value="LINEAR_CAMBER_THICKNESS">Camber + half-thickness</option><option value="HOLD">Hold this section</option></select></label>}
       <details className="coordinate-import"><summary>{station.airfoil.kind === 'COORDINATES' ? 'Replace coordinate contour' : 'Import coordinate contour'}</summary><div><label>Name<input value={coordinateName} maxLength={40} disabled={!editable} onChange={(event) => setCoordinateName(event.target.value)} /></label><label>Source / provenance<input value={coordinateSource} maxLength={120} disabled={!editable} onChange={(event) => setCoordinateSource(event.target.value)} /></label><label>Contour points<textarea aria-label={`Coordinate contour at eta ${station.eta.toFixed(3)}`} value={coordinateText} disabled={!editable} placeholder={'Airfoil name (optional title line)\n1.0000 0.0013\n0.9500 0.0114\n…'} onChange={(event) => setCoordinateText(event.target.value)} /></label><button className="button compact" type="button" disabled={!editable} onClick={importCoordinates}>Normalize & apply contour</button></div></details>
@@ -212,7 +207,7 @@ export function AirfoilEditor({ design, editable, changedFields, changedActor, o
     <div className="editor-stack airfoil-editor">
       <section className="control-group">
         <div className="group-heading"><h3>Spanwise airfoil stations</h3><span className="capability-badge">V4 · {stations.length} / {MAX_AIRFOIL_STATIONS}</span></div>
-        <p className="editor-intro">Root and tip are required. Choose NACA, Clark Y, Selig S, SG, NASA SC(2), or a custom coordinate contour at every station. Intermediate sections blend camber and half-thickness independently.</p>
+        <p className="editor-intro">Root and tip are required. Choose a supported NACA four-digit section or a custom coordinate contour at every station. Intermediate sections blend camber and half-thickness independently.</p>
         <div className="airfoil-station-list">{stations.map((station, index) => <AirfoilStationEditor key={station.id} station={station} index={index} count={stations.length} editable={editable} minimumEta={index === 0 ? 0 : stations[index - 1].eta + MIN_AIRFOIL_STATION_SEPARATION} maximumEta={index === stations.length - 1 ? 1 : stations[index + 1].eta - MIN_AIRFOIL_STATION_SEPARATION} onChange={(next) => updateStation(index, next)} onRemove={() => { const next = structuredClone(stations); next.splice(index, 1); void commitStations(next); }} />)}</div>
         <button className="candidate-button add-station" type="button" disabled={!editable || stations.length >= MAX_AIRFOIL_STATIONS} onClick={addStation}>＋ Add intermediate section</button>
         {changedFields.includes('geometry.airfoilStations') && changedActor && <p className="mutation-note"><b className={`agent-chip actor-${changedActor}`}>{mutationLabel(changedActor)}</b> updated the spanwise section definition.</p>}

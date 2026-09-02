@@ -18,7 +18,7 @@ Release identity: app `0.6.0`, solver `aeroficiency-0.6.0`, tool schema `aerofic
 
 The V4/V5 implementation is complete locally:
 
-- V4: two to six user-positioned airfoil stations; arbitrary supported NACA four-digit sections; a built-in Clark Y, Selig S, Selig/Giguère SG, and NASA SC(2) geometry catalogue; imported coordinate definitions; local camber/thickness interpolation; local zero-lift angle and quarter-chord moment; spanwise 3D loft; and local wing-box geometry.
+- V4: two to six user-positioned airfoil stations; supported NACA four-digit sections; imported coordinate definitions; local camber/thickness interpolation; local zero-lift angle and quarter-chord moment; spanwise 3D loft; and local wing-box geometry.
 - V5: generated attached-flow section polars or bounded user-imported station/Reynolds tables, nonlinear section-polar lifting-line closure, local Reynolds number, profile drag, combined wing drag, estimated wing L/D, range diagnostics, and polar-linked torsional loading.
 - AoA exploration: a user-configurable −8° to +12° fixed-angle range in 0.5° or 1° increments; a full VLM/section-polar/torsion solve at every sampled angle; linked 3D, load, structure, efficiency, and 2D Section views; and immutable trim-versus-sweep separation.
 - UI: separate Planform/Airfoils/Structure/Case editors; five linked engineering views; a fine AoA presentation scrubber; and a discoverable Summary toggle beside Structure for the Overview/Checks/Compare/Log result sections. On tablet layouts, opening Summary smoothly gives the result panel its own column and shrinks the engineering workspace instead of covering it.
@@ -154,7 +154,7 @@ Aeroficiency is a deterministic, low-order, Reynolds/polar-aware, torsion-couple
 ### Geometry and spanwise sections
 
 - A design contains two to six ordered stations covering the root and tip. Each station accepts a supported NACA four-digit section or a bounded imported coordinate contour. Imported contours are normalized, checked, and cosine-resampled.
-- The catalogue includes attributed Clark Y, Selig S, Selig/Giguère SG, and NASA SC(2) sections. User contours are represented with the same canonical camber and half-thickness data as NACA sections.
+- User contours are represented with the same canonical camber and half-thickness data as generated NACA sections.
 - Camber and half-thickness are blended independently between stations. The resolved local section drives the 3D loft, front/rear spar intersections and wing-box height, zero-lift angle, quarter-chord moment, and generated polar shape.
 
 ### Section polars and three-dimensional aerodynamics

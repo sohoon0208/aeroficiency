@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { airfoilCatalogDefinition } from '@/lib/domain/airfoilCatalog';
 import { createBaselineDesign, createDefaultProject } from '@/lib/domain/defaults';
 import type { AirfoilDefinition, WingDesign } from '@/lib/domain/types';
 import { solveFixedAngleAerodynamics } from '@/lib/solver/aero';
 import { localAirfoilSection } from '@/lib/solver/airfoilSections';
 import { buildAnalysisSnapshot } from '@/lib/solver/analysis';
+import { sampleNaca4 } from '@/lib/solver/naca';
 import { solveAirfoilSectionPotentialFlow, traceSectionStreamlines } from '@/lib/solver/panel2d';
 
 function designWithUniformAirfoil(airfoil: AirfoilDefinition): WingDesign {
@@ -16,6 +16,18 @@ function designWithUniformAirfoil(airfoil: AirfoilDefinition): WingDesign {
   ];
   if (airfoil.kind === 'NACA4') design.geometry.nacaCode = airfoil.code;
   return design;
+}
+
+function generatedCoordinateContour(code: string): AirfoilDefinition {
+  const points = sampleNaca4(code, 60);
+  return {
+    kind: 'COORDINATES',
+    name: `Generated NACA ${code} contour`,
+    points: [
+      ...[...points].reverse().map((point) => [point.xLower, point.zLower] as const),
+      ...points.slice(1).map((point) => [point.xUpper, point.zUpper] as const),
+    ],
+  };
 }
 
 function fixedWing(design: WingDesign, alphaDeg: number) {
@@ -53,15 +65,12 @@ describe('AoA sweep and 2D airfoil validation matrix', () => {
     expect(Math.abs(panelFour.sourceFluxResidualM2ps) / panelFour.freeStreamMps).toBeLessThan(0.005);
   });
 
-  it('keeps thin, thick, cambered, Clark, S, SG, and SC sections finite and directionally correct', () => {
+  it('keeps thin, thick, cambered, and imported coordinate sections finite and directionally correct', () => {
     const definitions: Array<[string, AirfoilDefinition]> = [
       ['NACA 0008', { kind: 'NACA4', code: '0008' }],
       ['NACA 0024', { kind: 'NACA4', code: '0024' }],
       ['NACA 2412', { kind: 'NACA4', code: '2412' }],
-      ['Clark Y', airfoilCatalogDefinition('clark-y')!],
-      ['S1223', airfoilCatalogDefinition('s1223')!],
-      ['SG6043', airfoilCatalogDefinition('sg6043')!],
-      ['NASA SC(2)-0412', airfoilCatalogDefinition('sc2-0412')!],
+      ['Imported NACA 4415', generatedCoordinateContour('4415')],
     ];
 
     definitions.forEach(([label, definition]) => {
@@ -90,12 +99,11 @@ describe('AoA sweep and 2D airfoil validation matrix', () => {
     });
   });
 
-  it('completes the full supported angle envelope for representative NACA, S, SG, and SC profiles', () => {
+  it('completes the full supported angle envelope for representative NACA and imported profiles', () => {
     const definitions: Array<[string, AirfoilDefinition]> = [
       ['NACA 0012', { kind: 'NACA4', code: '0012' }],
-      ['S1223', airfoilCatalogDefinition('s1223')!],
-      ['SG6043', airfoilCatalogDefinition('sg6043')!],
-      ['NASA SC(2)-0412', airfoilCatalogDefinition('sc2-0412')!],
+      ['NACA 2412', { kind: 'NACA4', code: '2412' }],
+      ['Imported NACA 4415', generatedCoordinateContour('4415')],
     ];
     definitions.forEach(([label, definition]) => {
       const state = createDefaultProject();

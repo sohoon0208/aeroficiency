@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { createBaselineDesign } from '@/lib/domain/defaults';
-import { AIRFOIL_CATALOG, AIRFOIL_CATALOG_FAMILIES, airfoilCatalogDefinition } from '@/lib/domain/airfoilCatalog';
 import type { AirfoilDefinition, WingGeometry } from '@/lib/domain/types';
 import { canonicalAirfoil, localAirfoilSection, validateAirfoilStations } from '@/lib/solver/airfoilSections';
 import { sampleNaca4 } from '@/lib/solver/naca';
@@ -26,20 +25,10 @@ function nacaContour(code: string) {
 }
 
 describe('V4 spanwise airfoil sections', () => {
-  it('normalizes the complete Clark, S, SG, and NASA SC(2) built-in catalogue', () => {
-    expect(AIRFOIL_CATALOG).toHaveLength(10);
-    expect(AIRFOIL_CATALOG_FAMILIES).toEqual(['Clark family', 'Selig S series', 'Selig / Giguère SG series', 'NASA SC(2) series']);
-    for (const entry of AIRFOIL_CATALOG) {
-      const definition = airfoilCatalogDefinition(entry.id);
-      expect(definition).not.toBeNull();
-      if (!definition) continue;
-      let section;
-      try {
-        section = canonicalAirfoil(definition, 80);
-      } catch (error) {
-        throw new Error(`${entry.id}: ${error instanceof Error ? error.message : 'catalogue normalization failed'}`);
-      }
-      expect(section.label).toBe(entry.label);
+  it('normalizes generated NACA sections across supported camber and thickness bounds', () => {
+    for (const code of ['0006', '0012', '2412', '6124']) {
+      const section = canonicalAirfoil({ kind: 'NACA4', code }, 80);
+      expect(section.label).toBe(`NACA ${code}`);
       expect(section.maximumThicknessRatio).toBeGreaterThan(0.03);
       expect(section.maximumThicknessRatio).toBeLessThan(0.25);
       expect(section.upper).toHaveLength(81);

@@ -39,24 +39,31 @@ describe('case and configured-check editor', () => {
 });
 
 describe('V4/V5 airfoil and polar editor', () => {
-  it('offers named Clark, S, SG, and NASA SC(2) profiles and applies their validated coordinates', () => {
+  it('shows the generated NACA profile option', () => {
     const design = createBaselineDesign();
     const onUpdate = vi.fn(successfulUpdate);
     render(<AirfoilEditor design={design} editable changedFields={[]} changedActor={null} onUpdate={onUpdate} />);
 
     const profile = screen.getByRole('combobox', { name: 'Airfoil profile at eta 0.000' });
-    expect(within(profile).getByRole('option', { name: 'Clark Y' })).toBeInTheDocument();
-    expect(within(profile).getByRole('option', { name: 'S1223' })).toBeInTheDocument();
-    expect(within(profile).getByRole('option', { name: 'SG6043' })).toBeInTheDocument();
-    expect(within(profile).getByRole('option', { name: 'NASA SC(2)-0412' })).toBeInTheDocument();
-    fireEvent.change(profile, { target: { value: 'sg6043' } });
+    expect(within(profile).getByRole('option', { name: 'NACA four-digit · custom code' })).toBeInTheDocument();
+    expect(Array.from(profile.querySelectorAll('option'), (option) => option.textContent)).toEqual(['NACA four-digit · custom code']);
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
 
-    const patch = onUpdate.mock.calls[0][0];
-    if (!patch.airfoilStations) throw new Error('Expected an airfoil-station patch.');
-    const applied = patch.airfoilStations[0].airfoil;
-    expect(applied).toMatchObject({ kind: 'COORDINATES', name: 'SG6043', source: expect.stringContaining('UIUC Airfoil Data Site') });
-    if (applied.kind !== 'COORDINATES') throw new Error('Expected catalogue coordinates.');
-    expect(applied.points).toHaveLength(81);
+  it('keeps the custom coordinate contour import available', () => {
+    const design = createBaselineDesign();
+    design.geometry.airfoilStations[0].airfoil = {
+      kind: 'COORDINATES',
+      name: 'Imported contour',
+      points: [[0, 0], [0.05, 0.01], [0.1, 0.018], [0.15, 0.024], [0.2, 0.029], [0.25, 0.033], [0.3, 0.036], [0.35, 0.038], [0.4, 0.039], [0.45, 0.04], [0.5, 0.04], [0.55, 0.039], [0.6, 0.037], [0.65, 0.034], [0.7, 0.03], [0.75, 0.025], [0.8, 0.02], [0.85, 0.015], [0.9, 0.01], [0.95, 0.005], [1, 0], [0.95, -0.005], [0.9, -0.01], [0.85, -0.015], [0.8, -0.02], [0.75, -0.025], [0.7, -0.03], [0.65, -0.034], [0.6, -0.037], [0.55, -0.039], [0.5, -0.04], [0.45, -0.04], [0.4, -0.039], [0.35, -0.038], [0.3, -0.036], [0.25, -0.033], [0.2, -0.029], [0.15, -0.024], [0.1, -0.018], [0.05, -0.01], [0, 0]],
+    };
+    const onUpdate = vi.fn(successfulUpdate);
+    render(<AirfoilEditor design={design} editable changedFields={[]} changedActor={null} onUpdate={onUpdate} />);
+
+    const profile = screen.getByRole('combobox', { name: 'Airfoil profile at eta 0.000' });
+    expect(within(profile).getByRole('option', { name: 'Custom imported contour' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Imported contour airfoil section' })).toBeVisible();
+    expect(screen.getAllByText('Import coordinate contour')).toHaveLength(1);
   });
 
   it('does not submit an unchanged NACA field on blur', () => {
