@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { AnalysisSnapshot, FlightCase, WingDesign } from '@/lib/domain/types';
 import { interpolateStationValue } from '@/lib/domain/stations';
 import { localAirfoilSection } from '@/lib/solver/airfoilSections';
@@ -11,9 +11,33 @@ const fmt = (value: number, digits = 2) => value.toLocaleString('en-GB', { minim
 
 interface PlotPoint { x: number; y: number }
 
-function LinePlot({ title, subtitle, points, xLabel, yLabel, operatingPoint, zeroFloor = false }: { title: string; subtitle: string; points: PlotPoint[]; xLabel: string; yLabel: string; operatingPoint?: PlotPoint; zeroFloor?: boolean }) {
+interface HoverPoint extends PlotPoint { index: number; viewX: number; viewY: number }
+
+function clientToViewBox(svg: SVGSVGElement, clientX: number, clientY: number, width: number, height: number) {
+  const ctm = svg.getScreenCTM?.();
+  if (ctm && typeof DOMPoint !== 'undefined') {
+    try {
+      const point = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+      return { x: point.x, y: point.y };
+    } catch {
+      // Fall through to the bounding-rectangle mapping for browsers with an unavailable inverse matrix.
+    }
+  }
+  const box = svg.getBoundingClientRect();
+  if (!box.width || !box.height) return null;
+  return { x: (clientX - box.left) / box.width * width, y: (clientY - box.top) / box.height * height };
+}
+
+function LinePlot({ title, subtitle, points, xLabel, yLabel, operatingPoint, zeroFloor = false, xDigits = 2, yDigits = 3 }: { title: string; subtitle: string; points: PlotPoint[]; xLabel: string; yLabel: string; operatingPoint?: PlotPoint; zeroFloor?: boolean; xDigits?: number; yDigits?: number }) {
   const width = 520;
   const height = 190;
+  const plotLeft = 42;
+  const plotRight = width - 58;
+  const plotTop = 10;
+  const plotBottom = height - 26;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const descriptionId = useId();
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const xValues = points.map((point) => point.x);
   const yValues = points.map((point) => point.y);
   if (operatingPoint) { xValues.push(operatingPoint.x); yValues.push(operatingPoint.y); }
@@ -24,15 +48,55 @@ function LinePlot({ title, subtitle, points, xLabel, yLabel, operatingPoint, zer
   const padding = Math.max(1e-9, (rawHigh - rawLow) * 0.08);
   const yLow = zeroFloor ? Math.max(0, rawLow - padding) : rawLow - padding;
   const yHigh = rawHigh + padding;
-  const x = (value: number) => 42 + (value - xLow) / Math.max(xHigh - xLow, 1e-9) * (width - 58);
+  const x = (value: number) => plotLeft + (value - xLow) / Math.max(xHigh - xLow, 1e-9) * (plotRight - plotLeft);
   const y = (value: number) => 12 + (yHigh - value) / Math.max(yHigh - yLow, 1e-9) * (height - 42);
-  return <figure className="performance-plot"><figcaption><strong>{title}</strong><span>{subtitle}</span></figcaption><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}: ${subtitle}`}>
-    {[0, 0.5, 1].map((fraction) => <line key={`x-${fraction}`} className="section-grid" x1={x(xLow + fraction * (xHigh - xLow))} x2={x(xLow + fraction * (xHigh - xLow))} y1="10" y2={height - 26} />)}
-    {[0, 0.5, 1].map((fraction) => <g key={`y-${fraction}`}><line className="section-grid" x1="40" x2={width - 14} y1={y(yLow + fraction * (yHigh - yLow))} y2={y(yLow + fraction * (yHigh - yLow))} /><text x="3" y={y(yLow + fraction * (yHigh - yLow)) + 3}>{fmt(yLow + fraction * (yHigh - yLow), Math.abs(yHigh) < 1 ? 3 : 1)}</text></g>)}
-    <polyline className="performance-line" points={points.map((point) => `${x(point.x)},${y(point.y)}`).join(' ')} />
-    {operatingPoint && <circle className="operating-point" cx={x(operatingPoint.x)} cy={y(operatingPoint.y)} r="4" />}
-    <text x="42" y={height - 7}>{xLabel} {fmt(xLow, 2)}</text><text textAnchor="end" x={width - 14} y={height - 7}>{fmt(xHigh, 2)}</text><text textAnchor="end" x={width - 14} y="11">{yLabel}</text>
-  </svg></figure>;
+  const nearestPointIndex = (viewX: number) => points.reduce<number | null>((nearest, point, index) => {
+    if (nearest === null) return index;
+    return Math.abs(x(point.x) - viewX) < Math.abs(x(points[nearest].x) - viewX) ? index : nearest;
+  }, null);
+  const setHoverFromClientPoint = (clientX: number, clientY: number) => {
+    if (!points.length || !svgRef.current) return;
+    const viewPoint = clientToViewBox(svgRef.current, clientX, clientY, width, height);
+    if (!viewPoint || viewPoint.x < plotLeft || viewPoint.x > plotRight || viewPoint.y < plotTop || viewPoint.y > plotBottom) {
+      setHoveredIndex(null);
+      return;
+    }
+    setHoveredIndex(nearestPointIndex(viewPoint.x));
+  };
+  const focusIndex = operatingPoint && points.length
+    ? nearestPointIndex(x(operatingPoint.x)) ?? 0
+    : 0;
+  const hoveredPoint: HoverPoint | null = hoveredIndex === null || !points[hoveredIndex]
+    ? null
+    : { ...points[hoveredIndex], index: hoveredIndex, viewX: x(points[hoveredIndex].x), viewY: y(points[hoveredIndex].y) };
+  const tooltipX = hoveredPoint ? Math.min(plotRight - 40, Math.max(plotLeft + 40, hoveredPoint.viewX)) : 0;
+  const tooltipY = hoveredPoint ? Math.max(plotTop + 42, hoveredPoint.viewY) : 0;
+  const handleKeyDown = (event: ReactKeyboardEvent<SVGSVGElement>) => {
+    if (!points.length) return;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = hoveredIndex ?? focusIndex;
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? points.length - 1 : Math.max(0, Math.min(points.length - 1, current + (event.key === 'ArrowRight' ? 1 : -1)));
+    setHoveredIndex(next);
+  };
+  return (
+    <figure className="performance-plot">
+      <figcaption><strong>{title}</strong><span>{subtitle}</span></figcaption>
+      <div className="plot-surface">
+        <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${title}: ${subtitle}`} aria-describedby={descriptionId} tabIndex={0} onFocus={() => setHoveredIndex(focusIndex)} onBlur={() => setHoveredIndex(null)} onKeyDown={handleKeyDown}>
+          {[0, 0.5, 1].map((fraction) => <line key={`x-${fraction}`} className="section-grid" x1={x(xLow + fraction * (xHigh - xLow))} x2={x(xLow + fraction * (xHigh - xLow))} y1="10" y2={height - 26} />)}
+          {[0, 0.5, 1].map((fraction) => <g key={`y-${fraction}`}><line className="section-grid" x1="40" x2={width - 14} y1={y(yLow + fraction * (yHigh - yLow))} y2={y(yLow + fraction * (yHigh - yLow))} /><text x="3" y={y(yLow + fraction * (yHigh - yLow)) + 3}>{fmt(yLow + fraction * (yHigh - yLow), Math.abs(yHigh) < 1 ? 3 : 1)}</text></g>)}
+          <polyline className="performance-line" points={points.map((point) => `${x(point.x)},${y(point.y)}`).join(' ')} />
+          {operatingPoint && <circle className="operating-point" cx={x(operatingPoint.x)} cy={y(operatingPoint.y)} r="4" />}
+          {hoveredPoint && <><line className="plot-hover-guide vertical" x1={hoveredPoint.viewX} x2={hoveredPoint.viewX} y1={plotTop} y2={plotBottom} /><line className="plot-hover-guide horizontal" x1={plotLeft} x2={plotRight} y1={hoveredPoint.viewY} y2={hoveredPoint.viewY} /><circle className="plot-hover-point" cx={hoveredPoint.viewX} cy={hoveredPoint.viewY} r="4.5" /></>}
+          <rect className="plot-hit-area" x={plotLeft} y={plotTop} width={plotRight - plotLeft} height={plotBottom - plotTop} aria-hidden="true" onPointerMove={(event: ReactPointerEvent<SVGRectElement>) => setHoverFromClientPoint(event.clientX, event.clientY)} onPointerLeave={() => setHoveredIndex(null)} />
+          <text x="42" y={height - 7}>{xLabel} {fmt(xLow, xDigits)}</text><text textAnchor="end" x={width - 14} y={height - 7}>{fmt(xHigh, xDigits)}</text><text textAnchor="end" x={width - 14} y="11">{yLabel}</text>
+        </svg>
+        {hoveredPoint && <div className="plot-tooltip" data-testid="plot-tooltip" style={{ left: `${tooltipX / width * 100}%`, top: `${tooltipY / height * 100}%` }}><strong>{xLabel} {fmt(hoveredPoint.x, xDigits)}</strong><span>{yLabel} {fmt(hoveredPoint.y, yDigits)}</span></div>}
+      </div>
+      <span id={descriptionId} className="sr-only" aria-live="polite">{hoveredPoint ? `${xLabel} ${fmt(hoveredPoint.x, xDigits)}; ${yLabel} ${fmt(hoveredPoint.y, yDigits)}.` : `Hover over the ${title} plot or use the arrow keys to inspect sampled values.`}</span>
+    </figure>
+  );
 }
 
 export function PerformanceLab({ design, analysis, flightCase, selectedEta, onSelectEta }: { design: WingDesign; analysis: AnalysisSnapshot | null; flightCase: FlightCase; selectedEta: number; onSelectEta: (eta: number) => void }) {
@@ -72,12 +136,12 @@ export function PerformanceLab({ design, analysis, flightCase, selectedEta, onSe
     <div className="performance-local-facts"><span><b>{section.label}</b>local section</span><span><b>{condition.reynoldsNumber.toExponential(3)}</b>Re</span><span><b>{fmt(polar.current.cl, 3)}</b>C<sub>l</sub></span><span><b>{fmt(polar.current.cd, 5)}</b>C<sub>d</sub></span><span><b>{fmt(polar.current.cm, 4)}</b>C<sub>m,c/4</sub></span><span><b>{polar.current.state.replaceAll('_', ' ')}</b>range state</span></div>
     <div className="performance-plots">
       <LinePlot title="Wing lift curve" subtitle="Fixed-AoA coupled sweep" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.liftCoefficient }))} xLabel="α (deg)" yLabel="CL" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.liftCoefficient }} />
-      <LinePlot title="Wing drag curve" subtitle="Profile + wake-induced estimate" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.combinedDragCoefficientEstimate }))} xLabel="α (deg)" yLabel="CD" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.combinedDragCoefficientEstimate }} zeroFloor />
+      <LinePlot title="Wing drag curve" subtitle="Profile + wake-induced estimate" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.combinedDragCoefficientEstimate }))} xLabel="α (deg)" yLabel="CD" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.combinedDragCoefficientEstimate }} zeroFloor yDigits={5} />
       <LinePlot title="Wing efficiency" subtitle="Estimated wing-only L/D" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.estimatedWingLiftToDrag }))} xLabel="α (deg)" yLabel="L/D" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.estimatedWingLiftToDrag }} />
       <LinePlot title="Tip deflection response" subtitle="Fixed-AoA torsion-coupled sweep" points={sweepPoints.map((point) => ({ x: point.alphaDeg, y: point.metrics.tipDeflectionM }))} xLabel="α (deg)" yLabel="m" operatingPoint={{ x: metrics.trimmedAlphaDeg, y: metrics.tipDeflectionM }} />
       <LinePlot title="Spanwise Reynolds number" subtitle="ρVc/μ at structural stations" points={analysis.stations.map((station) => ({ x: station.eta, y: station.reynoldsNumber / 1e6 }))} xLabel="η" yLabel="Re ×10⁶" operatingPoint={{ x: condition.eta, y: condition.reynoldsNumber / 1e6 }} zeroFloor />
       <LinePlot title="Profile drag distribution" subtitle="q c Cd · semispan" points={analysis.stations.map((station) => ({ x: station.eta, y: station.profileDragPerSpanNpm }))} xLabel="η" yLabel="N/m" operatingPoint={{ x: condition.eta, y: localProfileDragPerSpan }} zeroFloor />
-      <LinePlot title="Local section polar" subtitle={`${section.label} · Re ${condition.reynoldsNumber.toExponential(2)}`} points={polar.points} xLabel="α (deg)" yLabel="Cl" operatingPoint={{ x: condition.localIncidenceDeg, y: polar.current.cl }} />
+      <LinePlot title="Local section polar" subtitle={`${section.label} · Re ${condition.reynoldsNumber.toExponential(2)}`} points={polar.points} xLabel="α (deg)" yLabel="Cl" operatingPoint={{ x: condition.localIncidenceDeg, y: polar.current.cl }} yDigits={4} />
     </div>
     <div className="polar-diagnostics"><span><b>{analysis.polarDiagnostics.withinRangeStations}</b> within table range</span><span><b>{analysis.polarDiagnostics.analyticEstimateStations}</b> analytic estimate</span><span><b>{analysis.polarDiagnostics.extrapolatedAlphaStations}</b> α extrapolated</span><span><b>{analysis.polarDiagnostics.outsideReynoldsStations}</b> Re outside</span><span><b>{analysis.polarDiagnostics.outsideAlphaStations}</b> α outside</span></div>
     <p className="scientific-warning"><strong>Preliminary wing-only drag estimate.</strong> Profile drag follows the active SectionPolar source. The analytic source is a transparent attached-flow surrogate, not XFOIL or experiment. Fuselage, interference, compressibility, transition prediction, separation, and first-principles stall are omitted.</p>

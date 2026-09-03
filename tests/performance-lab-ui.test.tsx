@@ -49,4 +49,31 @@ describe('V5 Reynolds and drag evidence lab', () => {
     expect(screen.getByText('A current converged wing analysis is required.')).toBeVisible();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
+
+  it('shows the nearest sampled values while hovering and supports keyboard inspection', () => {
+    const { project, design, analysis } = fixture();
+    render(<PerformanceLab design={design} analysis={analysis} flightCase={project.flightCase} selectedEta={0.333} onSelectEta={() => undefined} />);
+
+    const plots = screen.getAllByRole('img').map((element) => element as unknown as SVGSVGElement);
+    const firstPlot = plots[0];
+    vi.spyOn(firstPlot, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 520, height: 190, right: 520, bottom: 190, toJSON: () => ({}) } as DOMRect);
+    const hitArea = firstPlot.querySelector<SVGRectElement>('.plot-hit-area')!;
+    const firstPoint = analysis.angleSweep.points.find((point) => point.status === 'converged')!;
+
+    fireEvent.pointerMove(hitArea, { clientX: 42, clientY: 90 });
+    expect(screen.getByTestId('plot-tooltip')).toHaveTextContent(`α (deg) ${firstPoint.alphaDeg.toFixed(2)}`);
+    expect(screen.getByTestId('plot-tooltip')).toHaveTextContent('CL');
+    expect(firstPlot.querySelector('.plot-hover-guide.vertical')).toBeInTheDocument();
+    expect(firstPlot.querySelector('.plot-hover-point')).toBeInTheDocument();
+
+    fireEvent.pointerLeave(hitArea);
+    expect(screen.queryByTestId('plot-tooltip')).not.toBeInTheDocument();
+
+    fireEvent.focus(firstPlot);
+    expect(screen.getByTestId('plot-tooltip')).toBeInTheDocument();
+    fireEvent.keyDown(firstPlot, { key: 'End' });
+    expect(screen.getByTestId('plot-tooltip')).toHaveTextContent(`α (deg) ${analysis.angleSweep.points.at(-1)!.alphaDeg.toFixed(2)}`);
+    fireEvent.blur(firstPlot);
+    expect(screen.queryByTestId('plot-tooltip')).not.toBeInTheDocument();
+  });
 });
