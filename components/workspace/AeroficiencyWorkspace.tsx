@@ -7,13 +7,16 @@ import { SectionFlowLab } from '@/components/flow/SectionFlowLab';
 import { PerformanceLab } from '@/components/flow/PerformanceLab';
 import { AngleSweepScrubber } from '@/components/flow/AngleSweepExplorer';
 import { ChallengeHeader } from '@/components/workspace/ChallengeHeader';
+import { BatchCandidateImportDialog } from '@/components/workspace/BatchCandidateImportDialog';
+import { useFullResultsExport } from '@/components/workspace/useFullResultsExport';
 import { WingViewport, type ViewMode } from '@/components/viewport/WingViewport';
 import { analysisIsCurrent } from '@/lib/domain/commands';
 import { sweepPresentationAtAngle } from '@/lib/domain/angleSweep';
 import { createIdempotencyKey } from '@/lib/domain/ids';
-import { MODEL_WARNINGS } from '@/lib/domain/limits';
+import { MAX_DESIGNS, MODEL_WARNINGS } from '@/lib/domain/limits';
 import { interpolateStationValue } from '@/lib/domain/stations';
 import type { AnalysisSnapshot, DomainResult, WingDesign, WingGeometry, WingStructure } from '@/lib/domain/types';
+import { classifyDesigns, summarizeExportCounts } from '@/lib/resultsExport/classifyResults';
 import { configuredCheckSummary, immutableResultState, presentedConstraints, visibleRunOutcome } from '@/lib/presentation/status';
 import { buildCandidateVerdict, classifyDragChange, currentSelectedCandidateAnalysis } from '@/lib/presentation/verdict';
 import { RELEASE_IDENTITY } from '@/lib/release';
@@ -159,13 +162,16 @@ export function AeroficiencyWorkspace() {
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [sweepSelection, setSweepSelection] = useState<{ analysisId: string; alphaDeg: number } | null>(null);
   const [sweepInteracting, setSweepInteracting] = useState(false);
+  const [batchImportOpen, setBatchImportOpen] = useState(false);
   const resetDialogRef = useRef<HTMLElement>(null);
+  const batchImportTriggerRef = useRef<HTMLButtonElement>(null);
   const editorFocusRef = useRef<{ tab: EditorTab; ariaLabel: string } | null>(null);
 
   const focusedDesign = presentation.designId ? project.designs[presentation.designId] : null;
   const activeDesign = focusedDesign ?? project.designs[project.activeDesignId];
   const baseline = Object.values(project.designs).find((design) => design.kind === 'baseline') ?? null;
   const candidateCount = Object.values(project.designs).filter((design) => design.kind === 'candidate').length;
+  const batchImportAvailableSlots = Math.max(0, MAX_DESIGNS - Object.keys(project.designs).length);
   const selectedAnalysisId = presentation.analysisId ?? project.selectedAnalysisId ?? activeDesign.latestAnalysisId;
   const analysis = selectedAnalysisId ? project.analyses[selectedAnalysisId] ?? null : null;
   const selectedEta = presentation.eta ?? project.selectedEta;
@@ -185,6 +191,8 @@ export function AeroficiencyWorkspace() {
   const metricAnalysis = analysis;
   const overviewAnalysis = visualAnalysis ?? metricAnalysis;
   const runningGlobally = analysisRun.status === 'running';
+  const exportCounts = useMemo(() => summarizeExportCounts(classifyDesigns(project)), [project]);
+  const fullResultsExport = useFullResultsExport(project, runningGlobally || batchImportOpen);
   const runningForActive = runningGlobally && analysisRun.designId === activeDesign.designId && analysisRun.designRevision === activeDesign.revision;
   const editable = true;
   const activeMutationHighlight = mutationHighlight?.designId === activeDesign.designId ? mutationHighlight : null;
@@ -446,6 +454,7 @@ export function AeroficiencyWorkspace() {
           <div className="panel-title"><div><span className="eyebrow">DESIGN DEFINITION</span><h1>{activeDesign.label}</h1></div></div>
           <div className="variant-list" aria-label="Design variants">{Object.values(project.designs).map((design) => <DesignVariantItem key={design.designId} design={design} active={design.designId === activeDesign.designId} running={runningGlobally} onSelect={() => store().selectDesign(design.designId)} onRename={(label) => store().renameDesign(design.designId, label, 'human')} />)}</div>
           <button className="candidate-button" type="button" onClick={createCandidate}>＋ Create candidate variant</button>
+          {baseline && <button ref={batchImportTriggerRef} className="candidate-button batch-import-trigger" type="button" disabled={runningGlobally || batchImportAvailableSlots === 0} title={batchImportAvailableSlots === 0 ? 'No design slots are available. Reset the reference case or continue with an existing candidate.' : undefined} aria-label={batchImportAvailableSlots === 0 ? 'Import candidates unavailable; no design slots are available' : undefined} onClick={() => setBatchImportOpen(true)}>⇧ Import candidates</button>}
           {activeDesign.kind === 'candidate' && <button className="baseline-button" type="button" disabled={runningGlobally} onClick={setActiveBaseline}>◆ Set active design as Baseline</button>}
           <div className="tab-strip" role="tablist" aria-label="Design editors">{([['geometry', 'Planform'], ['airfoils', 'Airfoils'], ['structure', 'Structure'], ['case', 'Case']] as const).map(([key, label]) => <button key={key} id={`tab-${key}`} type="button" role="tab" tabIndex={editorTab === key ? 0 : -1} aria-selected={editorTab === key} aria-controls={`panel-${key}`} className={editorTab === key ? 'active' : ''} onClick={() => setEditorTab(key)} onKeyDown={(event) => moveTabFocus(event, ['geometry', 'airfoils', 'structure', 'case'] as const, editorTab, setEditorTab, 'tab')}>{label}</button>)}</div>
           <div id="panel-geometry" role="tabpanel" aria-labelledby="tab-geometry" className="editor-panel" hidden={editorTab !== 'geometry'}>
@@ -498,6 +507,7 @@ export function AeroficiencyWorkspace() {
 
         <aside id="results-workspace-panel" className={`side-panel results-panel mobile-${mobileView}`} aria-label="Analysis results">
           <div className="panel-title"><div><span className="eyebrow">IMMUTABLE ANALYSIS RESULT</span><h2>{metricAnalysis ? `${activeDesign.label} · ${metricAnalysis.analysisId}` : `${activeDesign.label} · awaiting analysis`}</h2></div><span className={`result-pill ${immutableState.key}`}>{immutableState.label}</span><button className="tablet-results-close" type="button" onClick={() => { setMobileView('model'); window.requestAnimationFrame(() => document.getElementById(window.matchMedia('(min-width: 900px)').matches ? 'summary-nav-button' : 'results-nav-button')?.focus()); }}>Close Summary</button></div>
+          <div className="results-export-bar"><div className="results-export-main"><button className="results-export-button" type="button" disabled={runningGlobally || batchImportOpen || fullResultsExport.busy} onClick={() => { void fullResultsExport.startExport(); }}>Download Full Results ZIP</button><span className="results-export-counts">{exportCounts.currentConverged} current · {exportCounts.diagnosticNotConverged} diagnostic · {exportCounts.stale} stale · {exportCounts.unanalysed} unanalysed{exportCounts.snapshotMissing ? ` · ${exportCounts.snapshotMissing} missing snapshot` : ''}</span></div><span className={`results-export-status ${fullResultsExport.phase}`} role={fullResultsExport.phase === 'error' ? 'alert' : 'status'} aria-live="polite">{fullResultsExport.message}</span></div>
           <div className="results-tabs" role="tablist" aria-label="Result sections">{([['overview', 'Overview'], ['checks', 'Checks'], ['compare', 'Compare'], ['log', 'Log']] as const).map(([key, label]) => <button key={key} id={`result-tab-${key}`} type="button" role="tab" tabIndex={resultTab === key ? 0 : -1} aria-selected={resultTab === key} aria-controls={`result-panel-${key}`} className={resultTab === key ? 'active' : ''} onClick={() => setResultTab(key)} onKeyDown={(event) => moveTabFocus(event, ['overview', 'checks', 'compare', 'log'] as const, resultTab, setResultTab, 'result-tab')}>{label}</button>)}</div>
           <div id="result-panel-overview" role="tabpanel" aria-labelledby="result-tab-overview" className="result-tab-panel" hidden={resultTab !== 'overview'}><div className="metrics-grid">
             <MetricCell label="Modeled wing-box wall mass" value={fmt(overviewAnalysis?.metrics.structuralMassKg, 1)} unit="kg" detail={metricAnalysis ? `Analysis r${metricAnalysis.designRevision}` : 'Awaiting analysis'} />
@@ -526,6 +536,8 @@ export function AeroficiencyWorkspace() {
       </section>
 
       <footer className="statusbar"><span><i />{runningGlobally ? 'Solver running' : 'Model ready'}</span><span>Solver <strong>{RELEASE_IDENTITY.solverVersion}</strong></span><span>Tool schema <strong>{RELEASE_IDENTITY.toolSchemaVersion}</strong></span><span>Build <strong>{RELEASE_IDENTITY.buildCommit}</strong></span><span className="spacer" /><span>Preliminary · aerospace education & early fixed-wing concepts · not for certification · SI units</span></footer>
+
+      {baseline && <BatchCandidateImportDialog open={batchImportOpen} baselineDesignId={baseline.designId} triggerRef={batchImportTriggerRef} onClose={() => setBatchImportOpen(false)} onOpenResult={(result) => { if (!result.designId) return; setBatchImportOpen(false); store().selectDesign(result.designId); if (result.analysisId) { store().focusAnalysisStation(result.analysisId, result.designId, 0.5, 'human'); setMobileView('results'); setResultTab('overview'); } else setMobileView('design'); }} />}
 
       {resetOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setResetOpen(false); }}><section ref={resetDialogRef} className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-description"><span className="dialog-icon" aria-hidden="true">↺</span><h2 id="reset-title">Reset reference case?</h2><p id="reset-description">Candidate history and analyses will return to the deterministic starting state. Any running analysis will be cancelled. This local action cannot be undone.</p><div><button type="button" className="button quiet" onClick={() => setResetOpen(false)}>Cancel</button><button type="button" className="button danger" onClick={() => { store().resetDemo(); setResetOpen(false); }}>Reset reference case</button></div></section></div>}
     </main>

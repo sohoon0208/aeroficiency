@@ -2,6 +2,7 @@
 
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/charts/SpanwiseCharts', () => ({ SpanwiseCharts: () => <div data-testid="charts" /> }));
@@ -12,6 +13,7 @@ import { AeroficiencyWorkspace } from '@/components/workspace/AeroficiencyWorksp
 import { createDefaultProject } from '@/lib/domain/defaults';
 import { createIdempotencyKey } from '@/lib/domain/ids';
 import { createEmptyPresentationFocus, useProjectStore } from '@/store/projectStore';
+import { BATCH_CSV_HEADERS } from '@/lib/batchImport/constants';
 
 beforeEach(() => {
   Object.defineProperty(window, 'matchMedia', {
@@ -104,6 +106,56 @@ describe('visible Site Tool mutation causality', () => {
     expect(summary).toHaveAttribute('aria-expanded', 'false');
     expect(summary).toHaveAttribute('aria-pressed', 'false');
     expect(workspace).not.toHaveClass('summary-open');
+  });
+
+  it('exposes one full-results ZIP action with truthful export counts', () => {
+    render(<AeroficiencyWorkspace />);
+    const exportButton = screen.getByRole('button', { name: 'Download Full Results ZIP' });
+    expect(exportButton).toBeEnabled();
+    expect(screen.getByText('0 current · 0 diagnostic · 0 stale · 1 unanalysed')).toBeVisible();
+  });
+
+  it('disables the ZIP action while an analysis is running', () => {
+    const state = useProjectStore.getState().project;
+    useProjectStore.setState({ analysisRun: {
+      status: 'running',
+      runId: 'run_test',
+      designId: state.activeDesignId,
+      designRevision: state.designs[state.activeDesignId].revision,
+      progress: null,
+    } });
+    render(<AeroficiencyWorkspace />);
+    expect(screen.getByRole('button', { name: 'Download Full Results ZIP' })).toBeDisabled();
+  });
+
+  it('opens the local CSV batch import dialog beside candidate creation', async () => {
+    render(<AeroficiencyWorkspace />);
+    const trigger = screen.getByRole('button', { name: '⇧ Import candidates' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Import candidates' });
+    expect(within(dialog).getByText(/CSV only/i)).toBeVisible();
+    expect(within(dialog).getByRole('link', { name: 'Download CSV template' })).toHaveAttribute('href', '/templates/aeroficiency-candidate-import.csv');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Import candidates' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('accepts a normal .csv selection under Strict Mode and builds a preview', async () => {
+    render(<StrictMode><AeroficiencyWorkspace /></StrictMode>);
+    const trigger = screen.getByRole('button', { name: '⇧ Import candidates' });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Import candidates' });
+    const input = within(dialog).getByLabelText('Choose candidate CSV');
+    const invalid = new File(['not a csv'], 'candidates.xlsx', { type: 'text/csv' });
+    fireEvent.change(input, { target: { files: [invalid] } });
+    expect(await within(dialog).findByText(/ends in \.csv/i)).toBeVisible();
+
+    const csv = [BATCH_CSV_HEADERS.join(','), 'C1,Preview candidate,,,,,,,,,,,'].join('\n');
+    const valid = new File([csv], 'candidates.CSV', { type: 'application/octet-stream' });
+    fireEvent.change(input, { target: { files: [valid] } });
+    await waitFor(() => expect(within(dialog).getByRole('region', { name: 'Candidate import preview' })).toBeVisible());
+    expect(within(dialog).getByText('Preview candidate')).toBeVisible();
   });
 
   it('moves lost editor focus to changed evidence and preserves it across same-tab remounts', async () => {

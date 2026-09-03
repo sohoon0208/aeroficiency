@@ -23,6 +23,8 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+The design panel also supports a local, CSV-only batch candidate import. Use the in-app preview to validate inherited values and bounded NACA station replacements before candidates are created and analyzed one at a time. A starter file is available at [`public/templates/aeroficiency-candidate-import.csv`](public/templates/aeroficiency-candidate-import.csv).
+
 To run the complete local release check:
 
 ```bash
@@ -30,6 +32,8 @@ npm run release:check
 ```
 
 This runs linting, TypeScript checks, license verification, tests, the production build, and the dependency audit.
+
+The Summary panel provides one local **Download Full Results ZIP** action. It exports a manifest, data dictionary, all retained design inputs, current converged analysis tables, and a consolidated comparison summary. Stale, failed, or unanalysed designs are identified without exporting their numerical results as current. The archive does not include rendered images or the regenerable 2D presentation field.
 
 ## Site Tools
 
