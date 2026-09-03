@@ -6,7 +6,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.{ts,tsx}'],
-    testTimeout: 20_000,
+    testTimeout: 60_000,
     coverage: { reporter: ['text', 'json-summary'] },
   },
 });

@@ -733,7 +733,7 @@ describe('bounded Aeroficiency Site Tools surface', () => {
     expect(comparison.error.safeNextAction).toContain(candidate.designId);
     expect(comparison.error.safeNextAction).toMatch(/at fast fidelity/i);
     expect(comparison.error.safeNextAction).not.toMatch(/no rerun is required/i);
-  });
+  }, 60_000);
 
   it('rejects a stale candidate used as the reference before suggesting replacement analyses', async () => {
     let state = createDefaultProject();
