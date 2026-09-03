@@ -8,8 +8,6 @@ The visual interface and Site Tools operate on the same revision-checked design 
 
 [Open the live Aeroficiency Site](https://aeroficiency.larerraven.chatgpt.site/)
 
-![Aeroficiency design and analysis workspace](public/og.png)
-
 ## Run Locally
 
 Requires Node.js 22.13 or newer.
